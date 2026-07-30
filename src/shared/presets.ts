@@ -1,7 +1,8 @@
 import type {
-  CapturePreset,
   CaptureSettings,
+  DeviceMode,
   GradientPreset,
+  ViewportPreset,
 } from './types';
 
 export const DEFAULT_SETTINGS: CaptureSettings = {
@@ -14,8 +15,8 @@ export const DEFAULT_SETTINGS: CaptureSettings = {
   margin: 32,
   cornerRadius: 28,
   shadow: 62,
-  gradientFrom: '#f1faf4',
-  gradientTo: '#f8fcf9',
+  gradientFrom: '#e3f2e8',
+  gradientTo: '#ebf5ed',
   gradientAngle: 135,
   backgroundStyle: 'soft',
   captureScale: 2,
@@ -25,77 +26,76 @@ export const DEFAULT_SETTINGS: CaptureSettings = {
   showUrl: true,
 };
 
-export const CAPTURE_PRESETS: CapturePreset[] = [
+export const VIEWPORT_PRESETS: readonly ViewportPreset[] = [
   {
-    id: 'desktop-hero',
-    name: 'Desktop Hero',
-    description: 'Webサイトやストア掲載の横長ヒーロー画像',
-    settings: { ...DEFAULT_SETTINGS },
+    id: 'desktop-full-hd',
+    name: 'Full HD',
+    deviceMode: 'desktop',
+    width: 1920,
+    height: 1080,
   },
   {
-    id: 'mobile-store',
-    name: 'Mobile Portrait',
-    description: 'スマホ枠を使った縦長の宣伝画像',
-    settings: {
-      ...DEFAULT_SETTINGS,
-      outputWidth: 1080,
-      outputHeight: 1350,
-      viewportWidth: 390,
-      viewportHeight: 844,
-      deviceMode: 'mobile',
-      frameStyle: 'phone',
-      margin: 32,
-      cornerRadius: 34,
-      shadow: 68,
-      gradientFrom: '#fdf2f8',
-      gradientTo: '#fffbeb',
-      gradientAngle: 145,
-      showUrl: false,
-    },
+    id: 'desktop-default',
+    name: 'Desktop',
+    deviceMode: 'desktop',
+    width: 1440,
+    height: 900,
   },
   {
-    id: 'square-promotion',
-    name: 'Square Promotion',
-    description: 'SNSや製品紹介カード向けの正方形',
-    settings: {
-      ...DEFAULT_SETTINGS,
-      outputWidth: 1600,
-      outputHeight: 1600,
-      viewportWidth: 1280,
-      viewportHeight: 800,
-      margin: 32,
-      gradientFrom: '#e0f2fe',
-      gradientTo: '#f3e8ff',
-      gradientAngle: 125,
-    },
+    id: 'desktop-laptop',
+    name: 'Laptop',
+    deviceMode: 'desktop',
+    width: 1366,
+    height: 768,
   },
   {
-    id: 'social-card',
-    name: 'Social Card',
-    description: 'OGPやSNS投稿向けの1200×630',
-    settings: {
-      ...DEFAULT_SETTINGS,
-      outputWidth: 1200,
-      outputHeight: 630,
-      viewportWidth: 1280,
-      viewportHeight: 720,
-      margin: 32,
-      cornerRadius: 22,
-      shadow: 55,
-    },
+    id: 'desktop-compact',
+    name: 'Compact',
+    deviceMode: 'desktop',
+    width: 1280,
+    height: 800,
   },
   {
-    id: 'clean-window',
-    name: 'Clean Window',
-    description: '枠を外してWebページだけを柔らかく配置',
-    settings: {
-      ...DEFAULT_SETTINGS,
-      frameStyle: 'none',
-      margin: 32,
-      cornerRadius: 30,
-      showUrl: false,
-      backgroundStyle: 'clean',
-    },
+    id: 'desktop-hd',
+    name: 'HD',
+    deviceMode: 'desktop',
+    width: 1280,
+    height: 720,
+  },
+  {
+    id: 'mobile-large',
+    name: 'Large',
+    deviceMode: 'mobile',
+    width: 430,
+    height: 932,
+  },
+  {
+    id: 'mobile-android',
+    name: 'Android',
+    deviceMode: 'mobile',
+    width: 412,
+    height: 915,
+  },
+  {
+    id: 'mobile-default',
+    name: 'Mobile',
+    deviceMode: 'mobile',
+    width: 390,
+    height: 844,
+  },
+  {
+    id: 'mobile-compact',
+    name: 'Compact',
+    deviceMode: 'mobile',
+    width: 375,
+    height: 812,
+  },
+  {
+    id: 'mobile-small',
+    name: 'Small',
+    deviceMode: 'mobile',
+    width: 360,
+    height: 800,
   },
 ];
 
@@ -103,47 +103,79 @@ export const GRADIENT_PRESETS: GradientPreset[] = [
   {
     id: 'mint-pearl',
     name: 'Mint Pearl',
-    from: '#f1faf4',
-    to: '#f8fcf9',
+    from: '#e3f2e8',
+    to: '#ebf5ed',
     angle: 135,
   },
   {
     id: 'lavender-mint',
     name: 'Lavender Mint',
-    from: '#eef2ff',
-    to: '#ecfeff',
+    from: '#e1e7f9',
+    to: '#ddf7f8',
     angle: 135,
   },
   {
     id: 'blush-cream',
     name: 'Blush Cream',
-    from: '#fdf2f8',
-    to: '#fffbeb',
+    from: '#f8e3ee',
+    to: '#f9f3dc',
     angle: 145,
   },
   {
     id: 'sky-lilac',
     name: 'Sky Lilac',
-    from: '#e0f2fe',
-    to: '#f3e8ff',
+    from: '#d2e9f9',
+    to: '#e7d7f9',
     angle: 125,
   },
   {
     id: 'warm-paper',
     name: 'Warm Paper',
-    from: '#fff7ed',
-    to: '#fefce8',
+    from: '#f9ecdc',
+    to: '#f8f5d8',
     angle: 150,
   },
   {
     id: 'quiet-gray',
     name: 'Quiet Gray',
-    from: '#f1f5f9',
-    to: '#f8fafc',
+    from: '#e4ebf1',
+    to: '#ebf0f5',
     angle: 135,
   },
 ];
 
 export function cloneSettings(settings: CaptureSettings): CaptureSettings {
   return { ...settings };
+}
+
+export function viewportPresetsFor(
+  deviceMode: DeviceMode,
+): readonly ViewportPreset[] {
+  return VIEWPORT_PRESETS.filter((preset) => preset.deviceMode === deviceMode);
+}
+
+export function findViewportPreset(
+  settings: Pick<
+    CaptureSettings,
+    'deviceMode' | 'viewportWidth' | 'viewportHeight'
+  >,
+): ViewportPreset | undefined {
+  return VIEWPORT_PRESETS.find(
+    (preset) =>
+      preset.deviceMode === settings.deviceMode &&
+      preset.width === settings.viewportWidth &&
+      preset.height === settings.viewportHeight,
+  );
+}
+
+export function applyViewportPreset(
+  settings: CaptureSettings,
+  preset: ViewportPreset,
+): CaptureSettings {
+  return {
+    ...settings,
+    deviceMode: preset.deviceMode,
+    viewportWidth: preset.width,
+    viewportHeight: preset.height,
+  };
 }

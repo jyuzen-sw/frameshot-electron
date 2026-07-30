@@ -1,70 +1,209 @@
-import type { RefObject } from 'react';
-import type { AppMode, DeviceMode, NavigationState } from '@shared/types';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type RefObject,
+} from 'react';
+import {
+  findViewportPreset,
+  viewportPresetsFor,
+} from '@shared/presets';
+import type {
+  CaptureSettings,
+  DeviceMode,
+  NavigationState,
+  ViewportPreset,
+} from '@shared/types';
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
   CameraIcon,
+  ChevronDownIcon,
   CopyIcon,
   MonitorIcon,
   PhoneIcon,
   ReloadIcon,
   SaveIcon,
   SlidersIcon,
-  SparklesIcon,
 } from './Icons';
 
 interface ToolbarProps {
   url: string;
   urlInputRef: RefObject<HTMLInputElement | null>;
   navigation: NavigationState;
-  mode: AppMode;
-  deviceMode: DeviceMode;
+  settings: CaptureSettings;
   busy: boolean;
-  captureAvailable: boolean;
-  needsRecompose: boolean;
-  viewportChangedSinceCapture: boolean;
   settingsOpen: boolean;
   onUrlChange: (value: string) => void;
   onNavigate: () => void;
   onBack: () => void;
   onForward: () => void;
   onReload: () => void;
-  onDeviceMode: (mode: DeviceMode) => void;
-  onCapture: () => void;
-  onRecompose: () => void;
+  onViewportPreset: (preset: ViewportPreset) => void;
+  onCustomViewport: (deviceMode: DeviceMode) => void;
   onCopy: () => void;
   onSave: () => void;
   onSettingsToggle: () => void;
-  onModeChange: (mode: AppMode) => void;
+}
+
+function moveMenuFocus(
+  event: KeyboardEvent<HTMLDivElement>,
+): void {
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  const items = Array.from(
+    event.currentTarget.querySelectorAll<HTMLButtonElement>(
+      'button[role="menuitem"]',
+    ),
+  );
+  if (items.length === 0) return;
+  event.preventDefault();
+  const currentIndex = items.indexOf(
+    document.activeElement as HTMLButtonElement,
+  );
+  const delta = event.key === 'ArrowDown' ? 1 : -1;
+  const nextIndex =
+    currentIndex < 0
+      ? delta > 0
+        ? 0
+        : items.length - 1
+      : (currentIndex + delta + items.length) % items.length;
+  items[nextIndex]?.focus();
 }
 
 export function Toolbar({
   url,
   urlInputRef,
   navigation,
-  mode,
-  deviceMode,
+  settings,
   busy,
-  captureAvailable,
-  needsRecompose,
-  viewportChangedSinceCapture,
   settingsOpen,
   onUrlChange,
   onNavigate,
   onBack,
   onForward,
   onReload,
-  onDeviceMode,
-  onCapture,
-  onRecompose,
+  onViewportPreset,
+  onCustomViewport,
   onCopy,
   onSave,
   onSettingsToggle,
-  onModeChange,
 }: ToolbarProps): React.JSX.Element {
-  const showRefreshAction = captureAvailable && (needsRecompose || viewportChangedSinceCapture);
-  const refreshLabel = viewportChangedSinceCapture ? '再撮影' : '再合成';
-  const refreshDisabled = busy || (viewportChangedSinceCapture && !navigation.url);
+  const [openMenu, setOpenMenu] = useState<DeviceMode | null>(null);
+  const viewportMenusRef = useRef<HTMLDivElement>(null);
+  const exactPreset = findViewportPreset(settings);
+
+  useEffect(() => {
+    if (!openMenu) return;
+    const closeOnPointer = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !viewportMenusRef.current?.contains(event.target)
+      ) {
+        setOpenMenu(null);
+      }
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setOpenMenu(null);
+    };
+    document.addEventListener('pointerdown', closeOnPointer);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnPointer);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [openMenu]);
+
+  const renderViewportMenu = (
+    deviceMode: DeviceMode,
+  ): React.JSX.Element => {
+    const active = settings.deviceMode === deviceMode;
+    const label = deviceMode === 'desktop' ? 'Desktop' : 'Mobile';
+    const Icon = deviceMode === 'desktop' ? MonitorIcon : PhoneIcon;
+    const expanded = openMenu === deviceMode;
+    return (
+      <div
+        className={`viewport-menu ${active ? 'active' : ''}`}
+        data-device-mode={deviceMode}
+      >
+        <button
+          type="button"
+          className="viewport-menu-trigger"
+          aria-haspopup="menu"
+          aria-expanded={expanded}
+          onClick={() =>
+            setOpenMenu((current) =>
+              current === deviceMode ? null : deviceMode,
+            )
+          }
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowDown') {
+              event.preventDefault();
+              setOpenMenu(deviceMode);
+              requestAnimationFrame(() => {
+                viewportMenusRef.current
+                  ?.querySelector<HTMLButtonElement>(
+                    `[data-device-mode="${deviceMode}"] [role="menu"] button`,
+                  )
+                  ?.focus();
+              });
+            }
+          }}
+        >
+          <Icon />
+          <span>
+            <b>{label}</b>
+            {active && (
+              <small>
+                {exactPreset?.name ?? 'Custom'} · {settings.viewportWidth}×
+                {settings.viewportHeight}
+              </small>
+            )}
+          </span>
+          <ChevronDownIcon />
+        </button>
+        {expanded && (
+          <div
+            className="viewport-menu-list"
+            role="menu"
+            aria-label={`${label} viewport`}
+            onKeyDown={moveMenuFocus}
+          >
+            {viewportPresetsFor(deviceMode).map((preset) => {
+              const selected = exactPreset?.id === preset.id;
+              return (
+                <button
+                  type="button"
+                  role="menuitem"
+                  key={preset.id}
+                  className={selected ? 'selected' : ''}
+                  onClick={() => {
+                    onViewportPreset(preset);
+                    setOpenMenu(null);
+                  }}
+                >
+                  <span><b>{preset.name}</b><small>{preset.width} × {preset.height}</small></span>
+                  {selected && <i aria-label="選択中">✓</i>}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              role="menuitem"
+              className={active && !exactPreset ? 'selected custom' : 'custom'}
+              onClick={() => {
+                onCustomViewport(deviceMode);
+                setOpenMenu(null);
+              }}
+            >
+              <span><b>Custom…</b><small>幅と高さを入力</small></span>
+              {active && !exactPreset && <i aria-label="選択中">✓</i>}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <header className="toolbar">
@@ -126,48 +265,23 @@ export function Toolbar({
         </output>
       </div>
 
-      <div className="toolbar-view-group">
-        <div className="toolbar-segment" aria-label="デバイス表示">
-          <button
-            type="button"
-            className={deviceMode === 'desktop' ? 'active' : ''}
-            onClick={() => onDeviceMode('desktop')}
-            title="Desktop 1440×900"
-          ><MonitorIcon /><span>Desktop</span></button>
-          <button
-            type="button"
-            className={deviceMode === 'mobile' ? 'active' : ''}
-            onClick={() => onDeviceMode('mobile')}
-            title="Mobile 390×844"
-          ><PhoneIcon /><span>Mobile</span></button>
-        </div>
-
-        <div className="mode-toggle" aria-label="表示モード">
-          <button type="button" className={mode === 'live' ? 'active' : ''} onClick={() => onModeChange('live')}>操作</button>
-          <button type="button" className={mode === 'preview' ? 'active' : ''} onClick={() => onModeChange('preview')}>完成</button>
-        </div>
+      <div
+        className="toolbar-view-group"
+        ref={viewportMenusRef}
+        aria-label="viewportプリセット"
+      >
+        {renderViewportMenu('desktop')}
+        {renderViewportMenu('mobile')}
       </div>
 
-      <div className="toolbar-actions" aria-label="撮影と書き出し">
-        {showRefreshAction ? (
-          <button
-            className={`toolbar-context-action ${viewportChangedSinceCapture ? 'requires-recapture' : 'requires-recompose'}`}
-            type="button"
-            disabled={refreshDisabled}
-            onClick={viewportChangedSinceCapture ? onCapture : onRecompose}
-          >
-            {viewportChangedSinceCapture ? <CameraIcon /> : <SparklesIcon />}
-            <span>{refreshLabel}</span>
-          </button>
-        ) : null}
-
+      <div className="toolbar-actions" aria-label="書き出しと設定">
         <div className="toolbar-export-actions">
           <button
             className="toolbar-icon-action toolbar-copy-action"
             type="button"
             aria-label="画像をコピー"
             title="画像をコピー"
-            disabled={!captureAvailable || busy}
+            disabled={!navigation.url || busy}
             onClick={onCopy}
           ><CopyIcon /><span>コピー</span></button>
           <button
@@ -175,7 +289,7 @@ export function Toolbar({
             type="button"
             aria-label="PNGを保存"
             title="PNGを保存"
-            disabled={!captureAvailable || busy}
+            disabled={!navigation.url || busy}
             onClick={onSave}
           ><SaveIcon /><span>保存</span></button>
         </div>
@@ -189,12 +303,6 @@ export function Toolbar({
           title={settingsOpen ? '詳細設定を閉じる' : '詳細設定を開く'}
           onClick={onSettingsToggle}
         ><SlidersIcon /><span>設定</span></button>
-
-        <button className="capture-button" type="button" disabled={busy || !navigation.url} onClick={onCapture}>
-          <CameraIcon />
-          <span>{busy ? '処理中…' : '撮影'}</span>
-          <kbd>Ctrl/⌘↵</kbd>
-        </button>
       </div>
     </header>
   );

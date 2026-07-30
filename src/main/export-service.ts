@@ -11,12 +11,16 @@ import {
   type Session,
 } from 'electron';
 import type {
-  CaptureResult,
   CaptureSettings,
-  SaveCaptureResult,
+  ExportDestination,
+  ExportRenderPayload,
+  ExportResult,
 } from '@shared/types';
 import { validateCaptureSettings } from '@shared/validation';
-import { buildCompositionHtml } from './composition-html';
+import {
+  EXPORT_RENDERER_HASH,
+  installAppProtocol,
+} from './app-protocol';
 import { ExclusiveOperation } from './exclusive-operation';
 import {
   EXPORT_PARTITION,
@@ -25,9 +29,11 @@ import {
 } from './export-protocol';
 import type { TargetBrowserController } from './target-browser-controller';
 
-interface CachedPageCapture {
-  png: Uint8Array<ArrayBuffer>;
-  targetUrl: string;
+interface ExportServiceOptions {
+  ownerWindow: BrowserWindow;
+  targetBrowser: TargetBrowserController;
+  rendererUrl: string;
+  rendererRoot?: string;
 }
 
 const EXPORT_STEP_TIMEOUT_MS = 10_000;
@@ -76,142 +82,108 @@ function dateStamp(date: Date): string {
   ].join('');
 }
 
-const WAIT_FOR_COMPOSITION_SCRIPT = `
-  (async () => {
-    const image = document.getElementById('page-image');
-    if (!(image instanceof HTMLImageElement)) {
-      throw new Error('合成対象のページ画像がありません。');
-    }
+function targetFilePart(targetUrl: string): string {
+  try {
+    return sanitizeFilePart(new URL(targetUrl).hostname);
+  } catch {
+    return 'frameshot';
+  }
+}
 
-    if (!image.complete) {
-      await new Promise((resolve, reject) => {
-        image.addEventListener('load', resolve, { once: true });
-        image.addEventListener(
-          'error',
-          () => reject(new Error('ページ画像を読み込めませんでした。')),
-          { once: true },
-        );
-      });
-    }
-    if (image.naturalWidth === 0 || image.naturalHeight === 0) {
-      throw new Error('ページ画像を読み込めませんでした。');
-    }
+function withExportHash(rendererUrl: string): string {
+  const url = new URL(rendererUrl);
+  url.hash = EXPORT_RENDERER_HASH.slice(1);
+  return url.href;
+}
 
-    if (document.fonts && document.fonts.ready) {
-      await Promise.race([
-        document.fonts.ready,
-        new Promise((resolve) => setTimeout(resolve, 3000)),
-      ]);
+function payloadScript(payload: ExportRenderPayload): string {
+  const serialized = JSON.stringify(payload)
+    .replaceAll('<', '\\u003c')
+    .replaceAll('\u2028', '\\u2028')
+    .replaceAll('\u2029', '\\u2029');
+  return `(() => {
+    const render = window.frameShotRenderExport;
+    if (typeof render !== 'function') {
+      throw new Error('書き出しキャンバスを初期化できませんでした。');
     }
-    await Promise.race([
-      new Promise((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(resolve)),
-      ),
-      new Promise((resolve) => setTimeout(resolve, 250)),
-    ]);
-    return true;
-  })()
-`;
+    return render(${serialized});
+  })()`;
+}
 
-export class CaptureService {
+export class ExportService {
   private readonly operations = new ExclusiveOperation();
   private readonly exportResources = new ExportResourceStore();
   private readonly exportSession: Session;
+  private readonly exportRendererUrl: string;
   private disposeExportProtocol: (() => void) | null;
-  private cachedPage: CachedPageCapture | null = null;
-  private latestComposite: NativeImage | null = null;
-  private latestSettings: CaptureSettings | null = null;
+  private disposeRendererProtocol: (() => void) | null = null;
   private activeExportWindow: BrowserWindow | null = null;
   private disposed = false;
 
-  public constructor(
-    private readonly ownerWindow: BrowserWindow,
-    private readonly targetBrowser: TargetBrowserController,
-  ) {
+  public constructor(private readonly options: ExportServiceOptions) {
+    this.exportRendererUrl = withExportHash(options.rendererUrl);
     this.exportSession = session.fromPartition(EXPORT_PARTITION, {
       cache: false,
     });
+    if (options.rendererRoot) {
+      this.disposeRendererProtocol = installAppProtocol(
+        this.exportSession,
+        options.rendererRoot,
+      );
+    }
     this.disposeExportProtocol = installExportProtocol(
       this.exportSession,
       this.exportResources,
     );
   }
 
-  public async capture(settings: CaptureSettings): Promise<CaptureResult> {
+  public async exportImage(
+    settings: CaptureSettings,
+    destination: ExportDestination,
+  ): Promise<ExportResult> {
     return this.operations.run(async () => {
       this.assertNotDisposed();
       const validatedSettings = validateCaptureSettings(settings);
-      const pageImage =
-        await this.targetBrowser.captureViewport(validatedSettings);
-      this.assertNotDisposed();
-      const nextPage = {
-        png: Uint8Array.from(pageImage.toPNG()),
-        targetUrl: this.targetBrowser.currentUrl,
-      };
-      const result = await this.compose(validatedSettings, nextPage);
-      this.assertNotDisposed();
-      this.cachedPage = nextPage;
-      return result;
-    });
-  }
-
-  public async recompose(settings: CaptureSettings): Promise<CaptureResult> {
-    return this.operations.run(async () => {
-      this.assertNotDisposed();
-      if (!this.cachedPage) {
-        throw new Error('先にページを撮影してください。');
+      if (destination !== 'clipboard' && destination !== 'file') {
+        throw new Error('書き出し先が不正です。');
       }
-      return this.compose(validateCaptureSettings(settings));
+
+      let outputPath: string | undefined;
+      if (destination === 'file') {
+        outputPath = await this.chooseOutputPath(validatedSettings);
+        if (!outputPath) {
+          return {
+            destination,
+            completed: false,
+            width: validatedSettings.outputWidth,
+            height: validatedSettings.outputHeight,
+          };
+        }
+      }
+
+      const composite = await this.createComposite(validatedSettings);
+      this.assertNotDisposed();
+
+      if (destination === 'clipboard') {
+        clipboard.writeImage(composite);
+      } else {
+        await fs.writeFile(outputPath!, composite.toPNG());
+      }
+
+      return {
+        destination,
+        completed: true,
+        width: validatedSettings.outputWidth,
+        height: validatedSettings.outputHeight,
+        exportedAt: new Date().toISOString(),
+        ...(outputPath ? { path: outputPath } : {}),
+      };
     });
-  }
-
-  public async saveLatest(): Promise<SaveCaptureResult> {
-    if (!this.latestComposite || !this.latestSettings) {
-      throw new Error('保存する画像がありません。');
-    }
-
-    const composite = this.latestComposite;
-    const settings = { ...this.latestSettings };
-    const cachedPage = this.cachedPage;
-    const targetName = cachedPage
-      ? sanitizeFilePart(new URL(cachedPage.targetUrl).hostname)
-      : 'frameshot';
-    const defaultPath = path.join(
-      app.getPath('pictures'),
-      `${targetName}-${dateStamp(new Date())}-${settings.outputWidth}x${settings.outputHeight}.png`,
-    );
-
-    const result = await dialog.showSaveDialog(this.ownerWindow, {
-      title: 'スクリーンショットを保存',
-      defaultPath,
-      filters: [{ name: 'PNG image', extensions: ['png'] }],
-      properties: ['createDirectory', 'showOverwriteConfirmation'],
-    });
-
-    if (result.canceled || !result.filePath) {
-      return { saved: false };
-    }
-
-    const outputPath = result.filePath.toLowerCase().endsWith('.png')
-      ? result.filePath
-      : `${result.filePath}.png`;
-    await fs.writeFile(outputPath, composite.toPNG());
-    return { saved: true, path: outputPath };
-  }
-
-  public copyLatest(): void {
-    if (!this.latestComposite) {
-      throw new Error('コピーする画像がありません。');
-    }
-    clipboard.writeImage(this.latestComposite);
   }
 
   public dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.cachedPage = null;
-    this.latestComposite = null;
-    this.latestSettings = null;
     if (
       this.activeExportWindow &&
       !this.activeExportWindow.isDestroyed()
@@ -221,26 +193,43 @@ export class CaptureService {
     this.activeExportWindow = null;
     this.disposeExportProtocol?.();
     this.disposeExportProtocol = null;
+    this.disposeRendererProtocol?.();
+    this.disposeRendererProtocol = null;
   }
 
-  private async compose(
+  private async chooseOutputPath(
     settings: CaptureSettings,
-    pageCapture: CachedPageCapture | null = this.cachedPage,
-  ): Promise<CaptureResult> {
-    if (!pageCapture) {
-      throw new Error('合成するページ画像がありません。');
-    }
-
-    const cachedPage = pageCapture;
-    const urls = this.exportResources.create(
-      cachedPage.png,
-      ({ pageImageUrl }) =>
-        buildCompositionHtml({
-          settings,
-          pageImageUrl,
-          targetUrl: cachedPage.targetUrl,
-        }),
+  ): Promise<string | undefined> {
+    const defaultPath = path.join(
+      app.getPath('pictures'),
+      `${targetFilePart(this.options.targetBrowser.currentUrl)}-${dateStamp(new Date())}-${settings.outputWidth}x${settings.outputHeight}.png`,
     );
+    const result = await dialog.showSaveDialog(this.options.ownerWindow, {
+      title: 'PNGを書き出す',
+      defaultPath,
+      filters: [{ name: 'PNG image', extensions: ['png'] }],
+      properties: ['createDirectory', 'showOverwriteConfirmation'],
+    });
+    if (result.canceled || !result.filePath) return undefined;
+    return result.filePath.toLowerCase().endsWith('.png')
+      ? result.filePath
+      : `${result.filePath}.png`;
+  }
+
+  private async createComposite(
+    settings: CaptureSettings,
+  ): Promise<NativeImage> {
+    const pageImage =
+      await this.options.targetBrowser.captureViewport(settings);
+    this.assertNotDisposed();
+    const urls = this.exportResources.create(
+      Uint8Array.from(pageImage.toPNG()),
+    );
+    const payload: ExportRenderPayload = {
+      settings,
+      pageImageUrl: urls.pageImageUrl,
+      targetUrl: this.options.targetBrowser.currentUrl,
+    };
     let exportWindow: BrowserWindow | null = null;
 
     try {
@@ -273,7 +262,7 @@ export class CaptureService {
         event: Electron.Event,
         destination: string,
       ): void => {
-        if (destination !== urls.documentUrl) {
+        if (destination !== this.exportRendererUrl) {
           event.preventDefault();
         }
       };
@@ -281,16 +270,16 @@ export class CaptureService {
       exportWindow.webContents.on('will-redirect', guardNavigation);
 
       await withExportTimeout(
-        exportWindow.loadURL(urls.documentUrl),
-        '合成画面の読み込み',
+        exportWindow.loadURL(this.exportRendererUrl),
+        '書き出し画面の読み込み',
       );
       exportWindow.webContents.setZoomFactor(1);
       await withExportTimeout(
         exportWindow.webContents.executeJavaScript(
-          WAIT_FOR_COMPOSITION_SCRIPT,
+          payloadScript(payload),
           true,
         ),
-        '合成画像の描画待機',
+        '書き出しキャンバスの描画',
       );
 
       const captured = await withExportTimeout(
@@ -306,7 +295,7 @@ export class CaptureService {
         '完成画像の取得',
       );
       if (captured.isEmpty()) {
-        throw new Error('完成画像の合成に失敗しました。');
+        throw new Error('完成画像の生成に失敗しました。');
       }
 
       const capturedSize = captured.getSize();
@@ -319,18 +308,8 @@ export class CaptureService {
               height: settings.outputHeight,
               quality: 'best',
             });
-
-      // Clone via PNG so the image is independent from the hidden composition window.
       this.assertNotDisposed();
-      this.latestComposite = nativeImage.createFromBuffer(normalized.toPNG());
-      this.latestSettings = { ...settings };
-
-      return {
-        dataUrl: this.latestComposite.toDataURL(),
-        width: settings.outputWidth,
-        height: settings.outputHeight,
-        capturedAt: new Date().toISOString(),
-      };
+      return nativeImage.createFromBuffer(normalized.toPNG());
     } finally {
       this.exportResources.remove(urls.token);
       if (exportWindow && !exportWindow.isDestroyed()) {
@@ -344,7 +323,7 @@ export class CaptureService {
 
   private assertNotDisposed(): void {
     if (this.disposed) {
-      throw new Error('撮影サービスはすでに終了しています。');
+      throw new Error('書き出しサービスはすでに終了しています。');
     }
   }
 }

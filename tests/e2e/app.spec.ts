@@ -5,8 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
 import { expect, test } from '@playwright/test';
-import { calculateCompositionLayout } from '../../src/shared/layout';
-import { DEFAULT_SETTINGS } from '../../src/shared/presets';
+import type { ExportResult } from '../../src/shared/types';
 
 interface RunningApp {
   cdp: CdpPage;
@@ -574,7 +573,7 @@ async function waitForMainText(cdp: CdpPage, text: string): Promise<void> {
   logE2e('Fixture transition was confirmed in the main UI.');
 }
 
-test('opens a WebGL2 page and creates an in-memory composed preview', async () => {
+test('opens a WebGL2 page and exports the latest shared canvas', async () => {
   const fixture = await startFixtureServer();
   const tempDirectory = fs.mkdtempSync(
     path.join(os.tmpdir(), 'frameshot-e2e-'),
@@ -593,8 +592,12 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
       settingsExpanded: boolean;
       settingsFooterExists: boolean;
       settingsHidden: boolean;
-      stageHeight: number;
-      stageWidth: number;
+      canvasHeight: number;
+      canvasWidth: number;
+      liveSlot: boolean;
+      legacyActionsExist: boolean;
+      previewHeight: number;
+      previewWidth: number;
       shellHeight: number;
       shellWidth: number;
     }>(`
@@ -604,17 +607,21 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
         );
         const settingsSlot = document.querySelector('.settings-panel-slot');
         const shell = document.querySelector('.canvas-shell');
-        const stage = document.querySelector('.capture-stage');
+        const preview = document.querySelector('.composition-preview-frame');
+        const canvas = document.querySelector('.composition-canvas');
         if (
           !(settingsButton instanceof HTMLButtonElement) ||
           !(settingsSlot instanceof HTMLElement) ||
           !(shell instanceof HTMLElement) ||
-          !(stage instanceof HTMLElement)
+          !(preview instanceof HTMLElement) ||
+          !(canvas instanceof HTMLElement)
         ) {
           throw new Error('The initial studio layout is incomplete.');
         }
         const shellRect = shell.getBoundingClientRect();
-        const stageRect = stage.getBoundingClientRect();
+        const previewRect = preview.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        const legacyLabels = new Set(['撮影', '再撮影', '再合成']);
         return {
           actionDockExists: document.querySelector('.action-dock') !== null,
           captionExists: document.querySelector('.canvas-caption') !== null,
@@ -624,8 +631,17 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
           settingsHidden:
             settingsSlot.getAttribute('aria-hidden') === 'true' &&
             settingsSlot.inert,
-          stageHeight: stageRect.height,
-          stageWidth: stageRect.width,
+          canvasHeight: canvasRect.height,
+          canvasWidth: canvasRect.width,
+          liveSlot:
+            document.querySelector(
+              '.composition-page-slot[data-slot-mode="live"]',
+            ) !== null,
+          legacyActionsExist: Array.from(
+            document.querySelectorAll('button'),
+          ).some((button) => legacyLabels.has(button.textContent?.trim() ?? '')),
+          previewHeight: previewRect.height,
+          previewWidth: previewRect.width,
           shellHeight: shellRect.height,
           shellWidth: shellRect.width,
         };
@@ -636,12 +652,26 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
     expect(initialLayout.captionExists).toBe(true);
     expect(initialLayout.settingsExpanded).toBe(false);
     expect(initialLayout.settingsHidden).toBe(true);
+    expect(initialLayout.liveSlot).toBe(true);
+    expect(initialLayout.legacyActionsExist).toBe(false);
+    expect(initialLayout.previewWidth).toBeLessThanOrEqual(
+      initialLayout.shellWidth + 1,
+    );
+    expect(initialLayout.previewHeight).toBeLessThanOrEqual(
+      initialLayout.shellHeight + 1,
+    );
     expect(
       Math.min(
-        Math.abs(initialLayout.shellWidth - initialLayout.stageWidth),
-        Math.abs(initialLayout.shellHeight - initialLayout.stageHeight),
+        Math.abs(initialLayout.shellWidth - initialLayout.previewWidth),
+        Math.abs(initialLayout.shellHeight - initialLayout.previewHeight),
       ),
     ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(initialLayout.canvasWidth - initialLayout.previewWidth),
+    ).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(initialLayout.canvasHeight - initialLayout.previewHeight),
+    ).toBeLessThanOrEqual(2);
 
     await cdp.evaluate(`
       document.querySelector('button[aria-controls="settings-panel"]')?.click()
@@ -659,11 +689,11 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
       .poll(
         () =>
           cdp.evaluate<number>(
-            `document.querySelector('.capture-stage')?.getBoundingClientRect().width ?? 0`,
+            `document.querySelector('.composition-preview-frame')?.getBoundingClientRect().width ?? 0`,
           ),
         { timeout: 5_000 },
       )
-      .toBeLessThan(initialLayout.stageWidth);
+      .toBeLessThan(initialLayout.previewWidth);
     await cdp.evaluate(`
       document.querySelector('.settings-close-button')?.click()
     `);
@@ -683,10 +713,10 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
 
     const addressCenterDelta = await cdp.evaluate<number>(`
       (() => {
-        const bar = document.querySelector('.live-browser-bar');
-        const address = document.querySelector('.live-address');
+        const bar = document.querySelector('.composition-browser-bar');
+        const address = document.querySelector('.composition-address');
         if (!(bar instanceof HTMLElement) || !(address instanceof HTMLElement)) {
-          throw new Error('The live browser address was not found.');
+          throw new Error('The shared browser address was not found.');
         }
         const barRect = bar.getBoundingClientRect();
         const addressRect = address.getBoundingClientRect();
@@ -697,100 +727,6 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
       })()
     `);
     expect(addressCenterDelta).toBeLessThanOrEqual(1);
-
-    await expect
-      .poll(
-        () =>
-          cdp.evaluate<boolean>(`
-            Array.from(document.querySelectorAll('button')).some(
-              (candidate) =>
-                candidate.textContent?.includes('撮影') &&
-                !candidate.disabled,
-            )
-          `),
-        { timeout: 20_000 },
-      )
-      .toBe(true);
-    await cdp.evaluate(`
-      (() => {
-        const button = Array.from(document.querySelectorAll('button')).find(
-          (candidate) =>
-            candidate.textContent?.includes('撮影') &&
-            !candidate.disabled,
-        );
-        if (!(button instanceof HTMLButtonElement)) {
-          throw new Error('Capture button was not found.');
-        }
-        button.click();
-      })()
-    `);
-    logE2e('Capture was requested.');
-    await expect
-      .poll(
-        () =>
-          cdp.evaluate<boolean>(`
-            (() => {
-              const image = document.querySelector(
-                'img[alt="完成したスクリーンショット"]',
-              );
-              return image instanceof HTMLImageElement &&
-                image.complete &&
-                image.naturalWidth === 1920 &&
-                image.naturalHeight === 1080;
-            })()
-          `),
-        { timeout: 30_000 },
-      )
-      .toBe(true);
-    logE2e('Capture completed and the composed preview is ready.');
-
-    const layout = calculateCompositionLayout(DEFAULT_SETTINGS);
-    const samplePoint = {
-      x: Math.round(layout.screen.x + layout.screen.width * 0.12),
-      y: Math.round(layout.screen.y + layout.screen.height * 0.82),
-    };
-    const pixels = await cdp.evaluate<{
-      background: number[];
-      page: number[];
-    }>(`
-      (async () => {
-        const element = document.querySelector(
-          'img[alt="完成したスクリーンショット"]',
-        );
-        if (!(element instanceof HTMLImageElement)) {
-          throw new Error('Preview is not an image.');
-        }
-        await element.decode();
-        const canvas = document.createElement('canvas');
-        canvas.width = element.naturalWidth;
-        canvas.height = element.naturalHeight;
-        const context = canvas.getContext('2d');
-        if (!context) throw new Error('Canvas2D is unavailable.');
-        context.drawImage(element, 0, 0);
-        return {
-          background: Array.from(context.getImageData(4, 4, 1, 1).data),
-          page: Array.from(context.getImageData(
-            ${samplePoint.x},
-            ${samplePoint.y},
-            1,
-            1,
-          ).data),
-        };
-      })()
-    `);
-    expect(pixels.page[0]).toBeGreaterThanOrEqual(45);
-    expect(pixels.page[0]).toBeLessThanOrEqual(60);
-    expect(pixels.page[1]).toBeGreaterThanOrEqual(195);
-    expect(pixels.page[1]).toBeLessThanOrEqual(215);
-    expect(pixels.page[2]).toBeGreaterThanOrEqual(118);
-    expect(pixels.page[2]).toBeLessThanOrEqual(138);
-    expect(pixels.page[3]).toBe(255);
-    expect(pixels.background[0]).toBeGreaterThanOrEqual(235);
-    expect(pixels.background[1]).toBeGreaterThanOrEqual(
-      pixels.background[0],
-    );
-    expect(pixels.background[2]).toBeGreaterThanOrEqual(238);
-    expect(pixels.background[3]).toBe(255);
 
     const exportActionsReady = await cdp.evaluate<boolean>(`
       (() => {
@@ -804,9 +740,206 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
     `);
     expect(exportActionsReady).toBe(true);
 
+    const baselineSettings = await cdp.evaluate<Record<string, unknown>>(`
+      JSON.parse(localStorage.getItem('frameshot:settings:v2'))
+    `);
+    await cdp.evaluate(`
+      document.querySelector(
+        '[data-device-mode="mobile"] .viewport-menu-trigger',
+      )?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="mobile"] [role="menu"]',
+            ) !== null
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
     await cdp.evaluate(`
       (() => {
-        document.querySelector('button[aria-controls="settings-panel"]')?.click();
+        const preset = Array.from(
+          document.querySelectorAll(
+            '[data-device-mode="mobile"] [role="menuitem"]',
+          ),
+        ).find((button) => button.querySelector('b')?.textContent === 'Android');
+        if (!(preset instanceof HTMLButtonElement)) {
+          throw new Error('The Android viewport preset was not found.');
+        }
+        preset.click();
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v2'),
+              );
+              return settings.deviceMode === 'mobile' &&
+                settings.viewportWidth === 412 &&
+                settings.viewportHeight === 915;
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    const mobileSettings = await cdp.evaluate<Record<string, unknown>>(`
+      JSON.parse(localStorage.getItem('frameshot:settings:v2'))
+    `);
+    for (const key of [
+      'outputWidth',
+      'outputHeight',
+      'frameStyle',
+      'gradientFrom',
+      'gradientTo',
+      'margin',
+    ]) {
+      expect(mobileSettings[key]).toEqual(baselineSettings[key]);
+    }
+
+    await cdp.evaluate(`
+      document.querySelector(
+        '[data-device-mode="mobile"] .viewport-menu-trigger',
+      )?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="mobile"] [role="menuitem"].custom',
+            ) !== null
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      (() => {
+        const custom = document.querySelector(
+          '[data-device-mode="mobile"] [role="menuitem"].custom',
+        );
+        if (!(custom instanceof HTMLButtonElement)) {
+          throw new Error('The custom viewport action was not found.');
+        }
+        custom.click();
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              'button[aria-controls="settings-panel"]',
+            )?.getAttribute('aria-expanded') === 'true' &&
+              document.activeElement?.getAttribute('aria-label') ===
+                'ページ表示領域 幅'
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      (() => {
+        const input = document.querySelector(
+          'input[aria-label="ページ表示領域 幅"]',
+        );
+        if (!(input instanceof HTMLInputElement)) {
+          throw new Error('The custom viewport width input was not found.');
+        }
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          'value',
+        )?.set;
+        setter?.call(input, '414');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(
+            `JSON.parse(localStorage.getItem('frameshot:settings:v2')).viewportWidth === 414`,
+          ),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      document.querySelector('.settings-close-button')?.click()
+    `);
+    await cdp.evaluate(`
+      document.querySelector(
+        '[data-device-mode="desktop"] .viewport-menu-trigger',
+      )?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="desktop"] [role="menu"]',
+            ) !== null
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      (() => {
+        const preset = Array.from(
+          document.querySelectorAll(
+            '[data-device-mode="desktop"] [role="menuitem"]',
+          ),
+        ).find((button) => button.querySelector('b')?.textContent === 'Desktop');
+        if (!(preset instanceof HTMLButtonElement)) {
+          throw new Error('The default desktop viewport preset was not found.');
+        }
+        preset.click();
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v2'),
+              );
+              return settings.deviceMode === 'desktop' &&
+                settings.viewportWidth === 1440 &&
+                settings.viewportHeight === 900;
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+
+    const directExport = await cdp.evaluate<ExportResult>(`
+      (async () => {
+        const settings = JSON.parse(
+          localStorage.getItem('frameshot:settings:v2'),
+        );
+        return window.frameShot.exportImage(settings, 'clipboard');
+      })()
+    `);
+    expect(directExport).toMatchObject({
+      destination: 'clipboard',
+      completed: true,
+      width: 1920,
+      height: 1080,
+    });
+    expect(directExport.exportedAt).toEqual(expect.any(String));
+    logE2e('The shared export renderer completed an exact-size export.');
+
+    await cdp.evaluate(`
+      (() => {
+        document.querySelector('.toast-notice button[aria-label="閉じる"]')
+          ?.click();
+        document.querySelector(
+          'button[aria-controls="settings-panel"]',
+        )?.click();
         const input = document.querySelector(
           'input[aria-label="背景色 カラー1"]',
         );
@@ -817,63 +950,65 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
           HTMLInputElement.prototype,
           'value',
         )?.set;
-        setter?.call(input, '#eaf7ef');
+        setter?.call(input, '#d7eadf');
         input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
       })()
     `);
     await expect
       .poll(
         () =>
-          cdp.evaluate<boolean>(
-            `document.querySelector('.toolbar-context-action')?.textContent?.includes('再合成') === true`,
-          ),
+          cdp.evaluate<boolean>(`
+            (() => {
+              const canvas = document.querySelector('.composition-canvas');
+              const glow = document.querySelector('.composition-glow');
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v2'),
+              );
+              return canvas instanceof HTMLElement &&
+                glow instanceof HTMLElement &&
+                settings.gradientFrom === '#d7eadf' &&
+                getComputedStyle(canvas).backgroundImage.includes(
+                  'rgb(215, 234, 223)',
+                ) &&
+                getComputedStyle(glow).opacity === '0.62';
+            })()
+          `),
         { timeout: 5_000 },
       )
       .toBe(true);
     await cdp.evaluate(`
-      document.querySelector('.toolbar-context-action')?.click()
+      document.querySelector('.settings-close-button')?.click();
+      document.querySelector('button[aria-label="画像をコピー"]')?.click();
     `);
-    logE2e('Recompose was requested.');
-    let recomposeOutcome = 'pending';
     await expect
       .poll(
-        async () => {
-          recomposeOutcome = await cdp.evaluate<string>(`
-            (() => {
-              if (document.querySelector('.toolbar-context-action') === null) {
-                return 'complete';
-              }
-              const error = document.querySelector('.toast-notice.error');
-              return error ? 'error:' + error.textContent : 'pending';
-            })()
-          `);
-          return recomposeOutcome !== 'pending';
-        },
-        { timeout: 30_000 },
+        () =>
+          cdp.evaluate<boolean>(
+            `document.querySelector('.busy-indicator') !== null`,
+          ),
+        { timeout: 5_000 },
       )
       .toBe(true);
-    if (recomposeOutcome !== 'complete') {
-      const diagnostics = await cdp.evaluate<{
-        busy: string | null;
-        contextDisabled: boolean | null;
-        contextText: string | null;
-      }>(`
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<string>(
+            `document.querySelector('.toast-notice.success')?.textContent ?? ''`,
+          ),
+        { timeout: 30_000 },
+      )
+      .toContain('1920 × 1080 の画像をコピーしました。');
+    expect(
+      await cdp.evaluate<boolean>(`
         (() => {
-          const context = document.querySelector('.toolbar-context-action');
-          return {
-            busy: document.querySelector('.busy-indicator')?.textContent ?? null,
-            contextDisabled:
-              context instanceof HTMLButtonElement ? context.disabled : null,
-            contextText: context?.textContent ?? null,
-          };
+          const legacyLabels = new Set(['撮影', '再撮影', '再合成']);
+          return Array.from(document.querySelectorAll('button')).some(
+            (button) => legacyLabels.has(button.textContent?.trim() ?? ''),
+          );
         })()
-      `);
-      throw new Error(
-        `Header recompose failed: ${recomposeOutcome}; ${JSON.stringify(diagnostics)}`,
-      );
-    }
-    logE2e('Recompose completed.');
+      `),
+    ).toBe(false);
+    logE2e('Copy generated a fresh export without a capture mode.');
 
     const leakedFiles = fs
       .readdirSync(tempDirectory)
@@ -887,7 +1022,7 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
     throw error;
   } finally {
     await cleanupScenario(
-      'WebGL2 capture',
+      'WebGL2 shared export',
       app,
       fixture.server,
       tempDirectory,

@@ -1,13 +1,13 @@
 import path from 'node:path';
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow, Menu, session } from 'electron';
 import squirrelStartup from 'electron-squirrel-startup';
 import {
   APP_ENTRY_URL,
   installAppProtocol,
   registerAppSchemePrivileges,
 } from './app-protocol';
-import { installApplicationMenu } from './app-menu';
-import { CaptureService } from './capture-service';
+import { ExportService } from './export-service';
+import { registerExportSchemePrivileges } from './export-protocol';
 import { registerIpcHandlers, sendNavigationState } from './ipc';
 import {
   configureMainSession,
@@ -25,8 +25,15 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('com.squirrel.frameshot.frameshot');
 }
 registerAppSchemePrivileges();
+registerExportSchemePrivileges();
+Menu.setApplicationMenu(null);
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+
+const bundledRendererRoot = path.join(
+  __dirname,
+  `../renderer/${MAIN_WINDOW_VITE_NAME}`,
+);
 
 let mainWindow: BrowserWindow | null = null;
 let mainWindowCreation: Promise<void> | null = null;
@@ -51,7 +58,7 @@ async function createMainWindow(): Promise<void> {
     minHeight: 700,
     show: false,
     backgroundColor: '#0a0d14',
-    autoHideMenuBar: false,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -61,6 +68,7 @@ async function createMainWindow(): Promise<void> {
       spellcheck: false,
     },
   });
+  window.setMenuBarVisibility(false);
   mainWindow = window;
 
   const targetBrowser = new TargetBrowserController(
@@ -73,12 +81,19 @@ async function createMainWindow(): Promise<void> {
     targetBrowser,
     trustedRendererUrl,
   });
-  const captureService = new CaptureService(window, targetBrowser);
+  const exportService = new ExportService({
+    ownerWindow: window,
+    targetBrowser,
+    rendererUrl: trustedRendererUrl,
+    rendererRoot: MAIN_WINDOW_VITE_DEV_SERVER_URL
+      ? undefined
+      : bundledRendererRoot,
+  });
   const removeIpcHandlers = registerIpcHandlers({
     mainWindow: window,
     trustedRendererUrl,
     targetBrowser,
-    captureService,
+    exportService,
     preferences,
   });
 
@@ -88,7 +103,7 @@ async function createMainWindow(): Promise<void> {
     disposed = true;
     removeNavigationGuard();
     removeIpcHandlers();
-    captureService.dispose();
+    exportService.dispose();
     targetBrowser.destroy();
   };
   disposeCurrentWindow = disposeWindow;
@@ -101,7 +116,6 @@ async function createMainWindow(): Promise<void> {
     if (mainWindow === window) mainWindow = null;
   });
 
-  installApplicationMenu(window);
   window.once('ready-to-show', () => window.show());
 
   try {
@@ -139,7 +153,7 @@ if (shouldQuitForSquirrel) {
       configureMainSession(session.defaultSession);
       disposeAppProtocol = installAppProtocol(
         session.defaultSession,
-        path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}`),
+        bundledRendererRoot,
       );
       await ensureMainWindow();
       app.on('activate', () => {

@@ -2,8 +2,7 @@ export type FrameStyle = 'browser' | 'phone' | 'none';
 export type DeviceMode = 'desktop' | 'mobile';
 export type BackgroundStyle = 'soft' | 'clean';
 export type CaptureScale = 1 | 2;
-export type AppMode = 'live' | 'preview';
-export type AppCommand = 'capture' | 'save' | 'focus-url' | 'reload-target';
+export type ExportDestination = 'clipboard' | 'file';
 
 export interface ViewportSpec {
   width: number;
@@ -32,11 +31,12 @@ export interface CaptureSettings {
   showUrl: boolean;
 }
 
-export interface CapturePreset {
+export interface ViewportPreset {
   id: string;
   name: string;
-  description: string;
-  settings: CaptureSettings;
+  deviceMode: DeviceMode;
+  width: number;
+  height: number;
 }
 
 export interface GradientPreset {
@@ -45,12 +45,6 @@ export interface GradientPreset {
   from: string;
   to: string;
   angle: number;
-}
-
-export interface CustomPreset {
-  id: string;
-  name: string;
-  settings: CaptureSettings;
 }
 
 export interface TargetViewLayout {
@@ -72,16 +66,19 @@ export interface NavigationState {
   error?: string;
 }
 
-export interface CaptureResult {
-  dataUrl: string;
+export interface ExportResult {
+  destination: ExportDestination;
+  completed: boolean;
   width: number;
   height: number;
-  capturedAt: string;
+  exportedAt?: string;
+  path?: string;
 }
 
-export interface SaveCaptureResult {
-  saved: boolean;
-  path?: string;
+export interface ExportRenderPayload {
+  settings: CaptureSettings;
+  pageImageUrl: string;
+  targetUrl: string;
 }
 
 export interface UserPreferences {
@@ -94,10 +91,10 @@ export interface FrameShotApi {
   goForward: () => Promise<void>;
   reload: (ignoreCache?: boolean) => Promise<void>;
   setTargetLayout: (layout: TargetViewLayout) => void;
-  capture: (settings: CaptureSettings) => Promise<CaptureResult>;
-  recompose: (settings: CaptureSettings) => Promise<CaptureResult>;
-  saveCapture: () => Promise<SaveCaptureResult>;
-  copyCapture: () => Promise<void>;
+  exportImage: (
+    settings: CaptureSettings,
+    destination: ExportDestination,
+  ) => Promise<ExportResult>;
   resetSession: () => Promise<void>;
   openTargetDevTools: () => Promise<void>;
   getPreferences: () => Promise<UserPreferences>;
@@ -106,7 +103,6 @@ export interface FrameShotApi {
     allowed: boolean,
   ) => Promise<UserPreferences>;
   onNavigationState: (listener: (state: NavigationState) => void) => () => void;
-  onAppCommand: (listener: (command: AppCommand) => void) => () => void;
 }
 
 export interface CompositionLayout {

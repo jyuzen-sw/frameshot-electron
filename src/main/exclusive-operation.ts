@@ -4,7 +4,7 @@ export class ExclusiveOperation {
   public run<T>(operation: () => Promise<T>): Promise<T> {
     if (this.active) {
       return Promise.reject(
-        new Error('撮影または再合成の処理がすでに進行中です。'),
+        new Error('画像の書き出し処理がすでに進行中です。'),
       );
     }
 

@@ -16,9 +16,11 @@ vi.mock('electron', () => ({
 
 import {
   APP_ENTRY_URL,
+  EXPORT_RENDERER_HASH,
   registerAppSchemePrivileges,
   resolveBundledRendererPath,
 } from '../../src/main/app-protocol';
+import { registerExportSchemePrivileges } from '../../src/main/export-protocol';
 import {
   normalizeTrustedRendererUrl,
   parseExternalHttpUrl,
@@ -54,6 +56,12 @@ describe('bundled renderer protocol policy', () => {
     expect(
       resolveBundledRendererPath(
         rendererRoot,
+        `${APP_ENTRY_URL}${EXPORT_RENDERER_HASH}`,
+      ),
+    ).toBe(path.join(rendererRoot, 'index.html'));
+    expect(
+      resolveBundledRendererPath(
+        rendererRoot,
         'frameshot-app://app/assets/index-abcd.js',
       ),
     ).toBe(path.join(rendererRoot, 'assets/index-abcd.js'));
@@ -78,6 +86,28 @@ describe('bundled renderer protocol policy', () => {
         'frameshot-app://app/%2e%2e%2fsecret.txt',
       ),
     ).toBeNull();
+  });
+});
+
+describe('export image protocol policy', () => {
+  it('registers a secure standard scheme without CSP bypass or web APIs', () => {
+    electronMocks.registerSchemesAsPrivileged.mockClear();
+    registerExportSchemePrivileges();
+
+    expect(electronMocks.registerSchemesAsPrivileged).toHaveBeenCalledWith([
+      {
+        scheme: 'frameshot-export',
+        privileges: {
+          standard: true,
+          secure: true,
+          bypassCSP: false,
+          allowServiceWorkers: false,
+          supportFetchAPI: false,
+          corsEnabled: false,
+          stream: false,
+        },
+      },
+    ]);
   });
 });
 

@@ -5,50 +5,37 @@ import {
 } from '../../src/main/export-protocol';
 
 describe('ExportResourceStore', () => {
-  it('serves the document once and keeps the page image in memory', async () => {
+  it('serves the in-memory page image once without caching', async () => {
     const store = new ExportResourceStore();
     const pagePng = Uint8Array.from([137, 80, 78, 71]);
-    const urls = store.create(
-      pagePng,
-      ({ pageImageUrl }) => `<img src="${pageImageUrl}">`,
-    );
-
-    const firstDocument = store.handle(new Request(urls.documentUrl));
-    expect(firstDocument.status).toBe(200);
-    expect(await firstDocument.text()).toContain(urls.pageImageUrl);
-    expect(firstDocument.headers.get('cache-control')).toContain('no-store');
-    expect(firstDocument.headers.get('content-security-policy')).toContain(
-      "default-src 'none'",
-    );
-
-    expect(
-      store.handle(new Request(urls.documentUrl)).status,
-    ).toBe(410);
+    const urls = store.create(pagePng);
 
     const image = store.handle(new Request(urls.pageImageUrl));
     expect(image.status).toBe(200);
     expect(image.headers.get('content-type')).toBe('image/png');
+    expect(image.headers.get('cache-control')).toContain('no-store');
     expect(Array.from(new Uint8Array(await image.arrayBuffer()))).toEqual(
       Array.from(pagePng),
     );
+    expect(store.handle(new Request(urls.pageImageUrl)).status).toBe(410);
   });
 
-  it('requires an exact GET URL and removes every resource explicitly', () => {
+  it('requires an exact GET URL and removes resources explicitly', () => {
     const store = new ExportResourceStore();
-    const urls = store.create(Uint8Array.from([1]), () => '<main>capture</main>');
+    const urls = store.create(Uint8Array.from([1]));
 
     expect(
-      store.handle(new Request(urls.documentUrl, { method: 'POST' })).status,
+      store.handle(new Request(urls.pageImageUrl, { method: 'POST' })).status,
     ).toBe(405);
     expect(
-      store.handle(new Request(`${urls.documentUrl}?unexpected=1`)).status,
+      store.handle(new Request(`${urls.pageImageUrl}?unexpected=1`)).status,
     ).toBe(404);
     expect(
-      store.handle(new Request(`${urls.documentUrl}/`)).status,
+      store.handle(new Request(`${urls.pageImageUrl}/`)).status,
     ).toBe(404);
     expect(
       store.handle(
-        new Request(urls.documentUrl.replace('//capture/', '//other/')),
+        new Request(urls.pageImageUrl.replace('//capture/', '//other/')),
       ).status,
     ).toBe(404);
 
