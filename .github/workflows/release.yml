@@ -1,0 +1,32 @@
+name: Build release artifacts
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+      - name: Verify tag matches package version
+        run: node -e "const expected = 'v' + require('./package.json').version; if (process.env.GITHUB_REF_NAME !== expected) throw new Error('Expected tag ' + expected + ', got ' + process.env.GITHUB_REF_NAME)"
+      - run: npm ci
+      - run: npm run audit
+      - run: npm run verify
+      - run: npm run make:windows
+      - run: npm run verify:fuses
+      - run: npm run verify:windows-artifacts
+      - uses: actions/upload-artifact@v7
+        with:
+          name: FrameShot-Windows-x64
+          path: out/make/squirrel.windows/x64/**
+          if-no-files-found: error
