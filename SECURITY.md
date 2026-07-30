@@ -44,8 +44,8 @@ WebGL / WebGL2サイトの表示を優先するため、ChromiumのGPUブロッ�
 
 ## 配布物
 
-配布対象はWindows x64です。パッケージはASARを使用し、Electron FuseでRunAsNode、`NODE_OPTIONS`、CLI inspect、ASAR外からのアプリ読込、`file://`の追加特権を無効化します。ASAR integrityとCookie暗号化を有効化し、WindowsのSquirrel起動イベントもアプリUIを開く前に処理します。CIはWindows上でNode.js 26によるaudit、型検査、単体テスト、Squirrel成果物、Fuse、パッケージ済みアプリのE2Eを検証します。Linux/Xvfbでは配布物を公開せず、同じE2Eだけを補助的に実行します。
+配布対象はWindows x64です。パッケージはASARを使用し、Electron FuseでRunAsNode、`NODE_OPTIONS`、CLI inspect、ASAR外からのアプリ読込、`file://`の追加特権を無効化します。ASAR integrityとCookie暗号化を有効化し、WindowsのSquirrel起動イベントもアプリUIを開く前に処理します。CIはpull requestと `main` pushでLinux上のaudit、型検査、単体テストを行い、`main` pushでWindowsとLinux/Xvfbのパッケージ済みアプリをE2E検証します。タグでは既存のWindows Squirrel成果物と、検証・開発用のLinux x64 package artifactを生成します。
 
 `LoadBrowserProcessSpecificV8Snapshot` Fuseは無効です。検証したElectron 43配布物に専用の `browser_v8_context_snapshot.bin` がなく、有効化したビルドは起動時にfatal errorになったためです。Windows成果物へ専用snapshotを生成・同梱できるようになるまでは、操作UI・対象サイト・合成画面を含む全rendererでNode integrationを無効にし、context isolationとsandboxを維持します。
 
-Windows Authenticode署名はまだ設定されていません。現在生成される実行ファイルとインストーラーは開発・検証用途に限定し、正式リリース前に署名と、秘密情報を安全に扱うリリース手順を追加する必要があります。macOS/Linux向け成果物は現在サポート対象外です。
+Windows Authenticode署名はまだ設定されていません。現在生成される実行ファイルとインストーラーは開発・検証用途に限定し、正式リリース前に署名と、秘密情報を安全に扱うリリース手順を追加する必要があります。Linux x64のworkflow artifactを含め、macOS/Linux向け成果物は現在サポート対象外です。

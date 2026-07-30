@@ -139,11 +139,11 @@ npm run verify:fuses  # パッケージ済みElectron Fuseを検証
 
 成果物は `out/` 以下に生成されます。
 
-現在の配布ターゲットはWindows x64だけです。Squirrel用の `FrameShot-Setup.exe`、NuGetパッケージ、`RELEASES` を生成します。Electron FuseでRunAsNode、`NODE_OPTIONS`、CLI inspect、ASAR外からのアプリ読込を無効化し、ASAR integrityとCookie暗号化を有効化しています。CIはWindows上でaudit、型検査、単体テスト、Squirrel成果物、Fuse、パッケージ済みアプリのE2Eを検証します。Linux/Xvfbは配布物を作らず、同じ既知シナリオの補助検査だけを行います。
+現在の配布ターゲットはWindows x64だけです。Squirrel用の `FrameShot-Setup.exe`、NuGetパッケージ、`RELEASES` を生成します。Electron FuseでRunAsNode、`NODE_OPTIONS`、CLI inspect、ASAR外からのアプリ読込を無効化し、ASAR integrityとCookie暗号化を有効化しています。CIはpull requestと `main` pushでLinux上のaudit、型検査、単体テストを実行し、`main` pushではWindowsとLinux/Xvfbのパッケージ済みアプリをE2E検証します。`v*.*.*` タグでは既存のWindows Squirrel成果物に加え、検証・開発用のLinux x64パッケージをworkflow artifactとして保存します。
 
 `LoadBrowserProcessSpecificV8Snapshot` Fuseは無効です。有効化には `browser_v8_context_snapshot.bin` の同梱が必要ですが、検証したElectron 43配布物では有効化すると起動時にfatal errorになりました。Windows成果物へ専用snapshotを生成・同梱する工程を追加するまでは、全rendererのNode integrationを無効にする現在の分離を維持します。
 
-Windows Authenticode署名と配布用資格情報はまだ設定していません。現在の成果物は開発・検証用途です。一般公開前に署名と、資格情報を安全に扱うリリース手順を追加してください。macOS/Linux向け成果物は現在サポート対象外です。
+Windows Authenticode署名と配布用資格情報はまだ設定していません。現在の成果物は開発・検証用途です。一般公開前に署名と、資格情報を安全に扱うリリース手順を追加してください。Linux x64のworkflow artifactを含め、macOS/Linux向け成果物は現在サポート対象外です。
 
 ## プロジェクト構成
 

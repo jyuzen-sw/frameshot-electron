@@ -13,20 +13,59 @@ jobs:
     name: Windows x64
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
         with:
           node-version: 26
       - name: Verify tag matches package version
         run: node -e "const expected = 'v' + require('./package.json').version; if (process.env.GITHUB_REF_NAME !== expected) throw new Error('Expected tag ' + expected + ', got ' + process.env.GITHUB_REF_NAME)"
-      - run: npm ci
-      - run: npm run audit
-      - run: npm run verify
-      - run: npm run make:windows
-      - run: npm run verify:fuses
-      - run: npm run verify:windows-artifacts
-      - uses: actions/upload-artifact@v7
+      - name: Install dependencies
+        run: npm ci
+      - name: Check dependencies for vulnerabilities
+        run: npm run audit
+      - name: Verify application
+        run: npm run verify
+      - name: Build Windows installer
+        run: npm run make:windows
+      - name: Verify Electron fuses
+        run: npm run verify:fuses
+      - name: Verify Windows artifacts
+        run: npm run verify:windows-artifacts
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v7
         with:
           name: FrameShot-Windows-x64
           path: out/make/squirrel.windows/x64/**
+          if-no-files-found: error
+
+  linux:
+    name: Linux x64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - name: Verify tag matches package version
+        run: node -e "const expected = 'v' + require('./package.json').version; if (process.env.GITHUB_REF_NAME !== expected) throw new Error('Expected tag ' + expected + ', got ' + process.env.GITHUB_REF_NAME)"
+      - name: Install dependencies
+        run: npm ci
+      - name: Package application
+        run: npm run package
+      - name: Configure Chrome sandbox permissions
+        run: |
+          sudo chown root:root out/FrameShot-linux-x64/chrome-sandbox
+          sudo chmod 4755 out/FrameShot-linux-x64/chrome-sandbox
+          stat -c '%U:%G %a %n' out/FrameShot-linux-x64/chrome-sandbox
+      - name: Archive Linux package
+        run: tar -czf FrameShot-Linux-x64.tar.gz -C out FrameShot-linux-x64
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: FrameShot-Linux-x64
+          path: FrameShot-Linux-x64.tar.gz
           if-no-files-found: error

@@ -95,9 +95,9 @@ Electron Fuseは次を強制します。
 
 `LoadBrowserProcessSpecificV8Snapshot`だけは無効です。このFuseを有効にするとmain process用の `browser_v8_context_snapshot.bin` が必須ですが、検証したElectron 43配布物には同梱されておらず、ビルドは起動時にfatal errorになりました。Windows成果物へ専用snapshotを生成・同梱する工程を用意するまでは、全rendererでNode integrationを無効にし、context isolationとsandboxを維持します。
 
-配布ターゲットはWindows x64だけです。CIはWindows上でNode.js 26、`npm ci`、全severityのaudit、型検査、単体テスト、Squirrel `make`、Fuse検査、成果物検査、パッケージ済みアプリのE2Eを行います。tag buildもWindows x64成果物だけを生成します。Linux/Xvfbは配布ターゲットではなく、WebGL2、インメモリ合成、非永続sessionの同じE2Eを補助的に検証するためだけに使います。
+配布ターゲットはWindows x64だけです。pull requestと `main` pushではLinux上でNode.js 26、`npm ci`、全severityのaudit、型検査、単体テストを行います。`main` pushではWindowsとLinux/Xvfbのパッケージ済みアプリを使い、WebGL2、インメモリ合成、非永続sessionの同じE2Eを検証します。tag buildはSquirrel `make`、Fuse検査、成果物検査を含むWindows x64成果物に加え、検証・開発用のLinux x64パッケージをworkflow artifactとして生成します。
 
-Windows Authenticode署名は未設定です。正式リリース前に署名資格情報を安全に扱うCIを追加する必要があります。macOS/Linux向け成果物は現在サポート対象外です。
+Windows Authenticode署名は未設定です。正式リリース前に署名資格情報を安全に扱うCIを追加する必要があります。Linux x64のworkflow artifactを含め、macOS/Linux向け成果物は現在サポート対象外です。
 
 ## 拡張候補
 
