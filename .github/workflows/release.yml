@@ -56,6 +56,11 @@ jobs:
         run: npm ci
       - name: Package application
         run: npm run package
+      - name: Configure Chrome sandbox permissions
+        run: |
+          sudo chown root:root out/FrameShot-linux-x64/chrome-sandbox
+          sudo chmod 4755 out/FrameShot-linux-x64/chrome-sandbox
+          stat -c '%U:%G %a %n' out/FrameShot-linux-x64/chrome-sandbox
       - name: Archive Linux package
         run: tar -czf FrameShot-Linux-x64.tar.gz -C out FrameShot-linux-x64
       - name: Upload Linux artifact

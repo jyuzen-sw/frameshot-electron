@@ -371,8 +371,10 @@ async function stopChildProcess(child: ChildProcess): Promise<void> {
 
   logE2e('Stopping the Electron process with SIGTERM.');
   const terminated = child.kill('SIGTERM');
-  if (!terminated && !childProcessStopped(child)) {
-    throw new Error('Could not send SIGTERM to the Electron process.');
+  if (!terminated) {
+    logE2e(
+      'SIGTERM was not reported as delivered; checking the process state.',
+    );
   }
   if (await waitForChildProcessToStop(child, 3000)) {
     logE2e(`Electron process stopped (${childProcessResult(child)}).`);
@@ -381,8 +383,10 @@ async function stopChildProcess(child: ChildProcess): Promise<void> {
 
   logE2e('Electron process did not stop in time; sending SIGKILL.');
   const killed = child.kill('SIGKILL');
-  if (!killed && !childProcessStopped(child)) {
-    throw new Error('Could not send SIGKILL to the Electron process.');
+  if (!killed) {
+    logE2e(
+      'SIGKILL was not reported as delivered; checking the process state.',
+    );
   }
   if (!(await waitForChildProcessToStop(child, 3000))) {
     throw new Error(
