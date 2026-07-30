@@ -8,7 +8,11 @@ import {
 } from './app-protocol';
 import { ExportService } from './export-service';
 import { registerExportSchemePrivileges } from './export-protocol';
-import { registerIpcHandlers, sendNavigationState } from './ipc';
+import {
+  registerIpcHandlers,
+  sendAppShortcut,
+  sendNavigationState,
+} from './ipc';
 import {
   configureMainSession,
   installMainWindowNavigationGuard,
@@ -75,6 +79,15 @@ async function createMainWindow(): Promise<void> {
     window,
     preferences,
     (state) => sendNavigationState(window, state),
+    (shortcut) => {
+      if (
+        shortcut === 'focus-url' &&
+        !window.webContents.isDestroyed()
+      ) {
+        window.webContents.focus();
+      }
+      sendAppShortcut(window, shortcut);
+    },
   );
   const removeNavigationGuard = installMainWindowNavigationGuard({
     window,

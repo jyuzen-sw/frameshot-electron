@@ -5,6 +5,7 @@ export const IPC = {
   reload: 'target:reload',
   setLayout: 'target:set-layout',
   navigationState: 'target:navigation-state',
+  appShortcut: 'app:shortcut',
   exportImage: 'export:image',
   resetSession: 'target:reset-session',
   openDevTools: 'target:open-devtools',

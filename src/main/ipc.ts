@@ -1,6 +1,10 @@
 import { ipcMain, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import { IPC } from '@shared/ipc';
-import type { ExportDestination, NavigationState } from '@shared/types';
+import type {
+  AppShortcut,
+  ExportDestination,
+  NavigationState,
+} from '@shared/types';
 import { validateCaptureSettings, validateTargetViewLayout } from '@shared/validation';
 import type { ExportService } from './export-service';
 import type { PreferencesStore } from './preferences-store';
@@ -146,5 +150,14 @@ export function sendNavigationState(
 ): void {
   if (!mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
     mainWindow.webContents.send(IPC.navigationState, state);
+  }
+}
+
+export function sendAppShortcut(
+  mainWindow: BrowserWindow,
+  shortcut: AppShortcut,
+): void {
+  if (!mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+    mainWindow.webContents.send(IPC.appShortcut, shortcut);
   }
 }

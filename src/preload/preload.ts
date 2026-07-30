@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from '@shared/ipc';
 import type {
+  AppShortcut,
   CaptureSettings,
   ExportDestination,
   FrameShotApi,
@@ -30,6 +31,14 @@ const api: FrameShotApi = {
       listener(state);
     ipcRenderer.on(IPC.navigationState, handler);
     return () => ipcRenderer.removeListener(IPC.navigationState, handler);
+  },
+  onAppShortcut: (listener: (shortcut: AppShortcut) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      shortcut: AppShortcut,
+    ) => listener(shortcut);
+    ipcRenderer.on(IPC.appShortcut, handler);
+    return () => ipcRenderer.removeListener(IPC.appShortcut, handler);
   },
 };
 

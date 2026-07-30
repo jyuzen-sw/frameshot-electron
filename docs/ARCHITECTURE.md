@@ -8,7 +8,7 @@ FrameShotは、操作UI、対象ページ、出力処理を別々のWebContents�
 
 Reactで構築され、URL、viewportプリセット、出力設定、ライブキャンバスを担当します。ファイルシステムやElectron APIには直接アクセスせず、preloadが `contextBridge` で公開する限定的な `window.frameShot` APIだけを使用します。
 
-Desktop / Mobileのヘッダーリストは、デバイス種別と論理ビューポートだけを変更します。Customを選んだ場合に設定パネルを開き、ページ表示領域の幅入力へフォーカスします。Electronのネイティブアプリケーションメニューは無効化し、保存、URLフォーカス、再読み込みのショートカットはRendererで処理します。
+Desktop / Mobileのヘッダーリストは、デバイス種別と論理ビューポートだけを変更します。Customを選んだ場合に設定パネルを開き、ページ表示領域の幅入力へフォーカスします。Electronのネイティブアプリケーションメニューは無効化します。保存、URLフォーカス、再読み込みのショートカットは、Main Processが対象ページ側の入力も捕捉して操作UIへ中継するため、どちらにフォーカスがあっても動作します。
 
 本番ビルドは `file://` ではなく `frameshot-app://app/` からbundle内のファイルだけを配信します。protocol handlerはhost、path、methodを検証してpath traversalを拒否し、index HTMLへ次の制約を含むCSPを付けます。
 

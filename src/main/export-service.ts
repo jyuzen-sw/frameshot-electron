@@ -37,6 +37,16 @@ interface ExportServiceOptions {
 }
 
 const EXPORT_STEP_TIMEOUT_MS = 10_000;
+const WAIT_FOR_EXPORT_RENDERER_SCRIPT = `new Promise((resolve) => {
+  const check = () => {
+    if (typeof window.frameShotRenderExport === 'function') {
+      resolve(true);
+      return;
+    }
+    setTimeout(check, 16);
+  };
+  check();
+})`;
 
 async function withExportTimeout<T>(
   operation: Promise<T>,
@@ -274,6 +284,13 @@ export class ExportService {
         '書き出し画面の読み込み',
       );
       exportWindow.webContents.setZoomFactor(1);
+      await withExportTimeout(
+        exportWindow.webContents.executeJavaScript(
+          WAIT_FOR_EXPORT_RENDERER_SCRIPT,
+          true,
+        ),
+        '書き出しキャンバスの初期化',
+      );
       await withExportTimeout(
         exportWindow.webContents.executeJavaScript(
           payloadScript(payload),

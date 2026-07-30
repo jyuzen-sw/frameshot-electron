@@ -10,6 +10,7 @@ import {
   cloneSettings,
 } from '@shared/presets';
 import type {
+  AppShortcut,
   CaptureSettings,
   DeviceMode,
   ExportDestination,
@@ -257,29 +258,52 @@ export function App(): React.JSX.Element {
     }
   }, [busy, showError]);
 
-  useEffect(() => {
-    const handleShortcut = (event: KeyboardEvent) => {
-      if ((!event.ctrlKey && !event.metaKey) || event.altKey) return;
-      const key = event.key.toLowerCase();
-      if (key === 's') {
-        event.preventDefault();
+  const runAppShortcut = useCallback(
+    (shortcut: AppShortcut) => {
+      if (shortcut === 'save') {
         void exportImage('file');
       }
-      if (key === 'l') {
-        event.preventDefault();
+      if (shortcut === 'focus-url') {
         urlInputRef.current?.focus();
         urlInputRef.current?.select();
       }
-      if (key === 'r') {
-        event.preventDefault();
-        if (navigation.url && !busy) {
-          void window.frameShot.reload(false);
-        }
+      if (shortcut === 'reload-target' && navigation.url && !busy) {
+        void window.frameShot.reload(false);
       }
+    },
+    [busy, exportImage, navigation.url],
+  );
+
+  useEffect(
+    () => window.frameShot.onAppShortcut(runAppShortcut),
+    [runAppShortcut],
+  );
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (
+        (!event.ctrlKey && !event.metaKey) ||
+        event.altKey ||
+        event.repeat
+      ) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      const shortcut: AppShortcut | null =
+        key === 's'
+          ? 'save'
+          : key === 'l'
+            ? 'focus-url'
+            : key === 'r'
+              ? 'reload-target'
+              : null;
+      if (!shortcut) return;
+      event.preventDefault();
+      runAppShortcut(shortcut);
     };
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [busy, exportImage, navigation.url]);
+  }, [runAppShortcut]);
 
   useEffect(
     () => () => {

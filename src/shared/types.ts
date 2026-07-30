@@ -3,6 +3,7 @@ export type DeviceMode = 'desktop' | 'mobile';
 export type BackgroundStyle = 'soft' | 'clean';
 export type CaptureScale = 1 | 2;
 export type ExportDestination = 'clipboard' | 'file';
+export type AppShortcut = 'save' | 'focus-url' | 'reload-target';
 
 export interface ViewportSpec {
   width: number;
@@ -103,6 +104,7 @@ export interface FrameShotApi {
     allowed: boolean,
   ) => Promise<UserPreferences>;
   onNavigationState: (listener: (state: NavigationState) => void) => () => void;
+  onAppShortcut: (listener: (shortcut: AppShortcut) => void) => () => void;
 }
 
 export interface CompositionLayout {
