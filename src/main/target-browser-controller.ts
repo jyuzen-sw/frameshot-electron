@@ -9,12 +9,14 @@ import {
   WebContentsView,
 } from 'electron';
 import type {
+  AppShortcut,
   CaptureSettings,
   NavigationState,
   TargetViewLayout,
   UserPreferences,
 } from '@shared/types';
 import { getHostname, isSupportedTargetUrl, normalizeTargetUrl } from '@shared/url';
+import { dispatchAppShortcutInput } from './app-shortcuts';
 import type { PreferencesStore } from './preferences-store';
 import { configureTargetSession, TARGET_PARTITION } from './security';
 import {
@@ -66,6 +68,7 @@ export class TargetBrowserController {
   private view!: WebContentsView;
   private targetSession!: Session;
   private readonly onState: (state: NavigationState) => void;
+  private readonly onShortcut: (shortcut: AppShortcut) => void;
   private readonly preferences: PreferencesStore;
   private readonly popupWindows = new Set<BrowserWindow>();
   private state: NavigationState = { ...EMPTY_STATE };
@@ -79,9 +82,11 @@ export class TargetBrowserController {
     private readonly mainWindow: BrowserWindow,
     preferences: PreferencesStore,
     onState: (state: NavigationState) => void,
+    onShortcut: (shortcut: AppShortcut) => void,
   ) {
     this.preferences = preferences;
     this.onState = onState;
+    this.onShortcut = onShortcut;
     this.createTargetEnvironment();
   }
 
@@ -422,6 +427,9 @@ export class TargetBrowserController {
   private configureWebContents(): void {
     const webContents = this.view.webContents;
     webContents.setAudioMuted(true);
+    webContents.on('before-input-event', (event, input) => {
+      dispatchAppShortcutInput(event, input, this.onShortcut);
+    });
     this.configurePopupPolicy(webContents);
     this.configureNavigationGuard(webContents, false, (url) => {
       this.setError(

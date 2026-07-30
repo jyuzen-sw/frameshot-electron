@@ -1,8 +1,12 @@
 import { ipcMain, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import { IPC } from '@shared/ipc';
-import type { AppCommand, NavigationState } from '@shared/types';
+import type {
+  AppShortcut,
+  ExportDestination,
+  NavigationState,
+} from '@shared/types';
 import { validateCaptureSettings, validateTargetViewLayout } from '@shared/validation';
-import type { CaptureService } from './capture-service';
+import type { ExportService } from './export-service';
 import type { PreferencesStore } from './preferences-store';
 import type { TargetBrowserController } from './target-browser-controller';
 
@@ -10,7 +14,7 @@ interface RegisterIpcOptions {
   mainWindow: BrowserWindow;
   trustedRendererUrl: string;
   targetBrowser: TargetBrowserController;
-  captureService: CaptureService;
+  exportService: ExportService;
   preferences: PreferencesStore;
 }
 
@@ -19,10 +23,7 @@ const HANDLED_CHANNELS = [
   IPC.goBack,
   IPC.goForward,
   IPC.reload,
-  IPC.capture,
-  IPC.recompose,
-  IPC.save,
-  IPC.copy,
+  IPC.exportImage,
   IPC.resetSession,
   IPC.openDevTools,
   IPC.getPreferences,
@@ -66,7 +67,7 @@ export function registerIpcHandlers({
   mainWindow,
   trustedRendererUrl,
   targetBrowser,
-  captureService,
+  exportService,
   preferences,
 }: RegisterIpcOptions): () => void {
   installHandle(IPC.navigate, async (event, input) => {
@@ -90,24 +91,15 @@ export function registerIpcHandlers({
     targetBrowser.reload(Boolean(ignoreCache));
   });
 
-  installHandle(IPC.capture, async (event, rawSettings) => {
+  installHandle(IPC.exportImage, async (event, rawSettings, rawDestination) => {
     assertTrustedSender(event, mainWindow, trustedRendererUrl);
-    return captureService.capture(validateCaptureSettings(rawSettings));
-  });
-
-  installHandle(IPC.recompose, async (event, rawSettings) => {
-    assertTrustedSender(event, mainWindow, trustedRendererUrl);
-    return captureService.recompose(validateCaptureSettings(rawSettings));
-  });
-
-  installHandle(IPC.save, async (event) => {
-    assertTrustedSender(event, mainWindow, trustedRendererUrl);
-    return captureService.saveLatest();
-  });
-
-  installHandle(IPC.copy, (event) => {
-    assertTrustedSender(event, mainWindow, trustedRendererUrl);
-    captureService.copyLatest();
+    if (rawDestination !== 'clipboard' && rawDestination !== 'file') {
+      throw new Error('書き出し先が不正です。');
+    }
+    return exportService.exportImage(
+      validateCaptureSettings(rawSettings),
+      rawDestination as ExportDestination,
+    );
   });
 
   installHandle(IPC.resetSession, async (event) => {
@@ -161,11 +153,11 @@ export function sendNavigationState(
   }
 }
 
-export function sendAppCommand(
+export function sendAppShortcut(
   mainWindow: BrowserWindow,
-  command: AppCommand,
+  shortcut: AppShortcut,
 ): void {
   if (!mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
-    mainWindow.webContents.send(IPC.appCommand, command);
+    mainWindow.webContents.send(IPC.appShortcut, shortcut);
   }
 }

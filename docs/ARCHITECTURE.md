@@ -2,11 +2,13 @@
 
 ## プロセスと信頼境界
 
-FrameShotは、操作UI、撮影対象、出力合成を別々のWebContentsとsessionに分離します。
+FrameShotは、操作UI、対象ページ、出力処理を別々のWebContentsとsessionに分離します。見た目を構成するReactコンポーネントとCSSは、ライブ表示と出力処理で共用します。
 
 ### Renderer（操作UI）
 
-Reactで構築され、URL、プリセット、出力設定、ライブキャンバス、完成プレビューを担当します。ファイルシステムやElectron APIには直接アクセスせず、preloadが `contextBridge` で公開する限定的な `window.frameShot` APIだけを使用します。
+Reactで構築され、URL、viewportプリセット、出力設定、ライブキャンバスを担当します。ファイルシステムやElectron APIには直接アクセスせず、preloadが `contextBridge` で公開する限定的な `window.frameShot` APIだけを使用します。
+
+Desktop / Mobileのヘッダーリストは、デバイス種別と論理ビューポートだけを変更します。Customを選んだ場合に設定パネルを開き、ページ表示領域の幅入力へフォーカスします。Electronのネイティブアプリケーションメニューは無効化します。保存、URLフォーカス、再読み込みのショートカットは、Main Processが対象ページ側の入力も捕捉して操作UIへ中継するため、どちらにフォーカスがあっても動作します。
 
 本番ビルドは `file://` ではなく `frameshot-app://app/` からbundle内のファイルだけを配信します。protocol handlerはhost、path、methodを検証してpath traversalを拒否し、index HTMLへ次の制約を含むCSPを付けます。
 
@@ -22,7 +24,7 @@ Reactで構築され、URL、プリセット、出力設定、ライブキャン
 ### Main Process
 
 - `TargetBrowserController`: `WebContentsView`、対象ナビゲーション、OAuthポップアップ、論理ビューポート、ページ画像取得
-- `CaptureService`: ページ画像のメモリ保持、合成の直列化、完成PNG取得、保存、コピー
+- `ExportService`: 最新ページの取得、共通キャンバスでの合成、完成PNG取得、保存、コピー
 - `app-protocol.ts`: 操作UI用 `frameshot-app:` protocolとCSP
 - `export-protocol.ts`: 合成用 `frameshot-export:` resource store
 - `PreferencesStore`: 証明書例外ホストの永続化
@@ -32,9 +34,15 @@ Reactで構築され、URL、プリセット、出力設定、ライブキャン
 
 ## ライブプレビューの座標同期
 
-Rendererは出力キャンバスをウィンドウ内に縮小表示します。フレーム内の画面領域を `getBoundingClientRect()` で測定し、その座標をMain Processへ送ります。Main Processは同じ位置・大きさにネイティブの `WebContentsView` を配置します。
+Rendererは `CompositionCanvas` を実際の出力寸法で構築し、CSS transformだけでウィンドウ内へ縮小表示します。フレーム内の画面領域を `getBoundingClientRect()` で測定し、その座標をMain Processへ送ります。Main Processは同じ位置・大きさにネイティブの `WebContentsView` を配置します。
 
 これにより、対象ページは本物のChromiumページとしてクリック、スクロール、入力できます。ブラウザバーやスマホベゼルはRenderer側の装飾です。
+
+## 共通キャンバス
+
+ライブ表示と書き出しは、同じ `CompositionCanvas` コンポーネントと `styles.css` を使います。背景、グラデーション、glow、grain、Browser / Phone / Noneフレーム、余白、角丸、影、ページ領域のDOMは共通です。
+
+違いはページ領域だけです。ライブ表示ではその位置に `WebContentsView` を重ね、非表示の書き出しRendererでは直前に取得したページPNGを `<img>` として配置します。ライブ表示用と出力用で別々のマークアップやCSSを保守しないため、表示差分が生じにくい構成です。
 
 ## 対象sessionとOAuth
 
@@ -46,28 +54,29 @@ Rendererは出力キャンバスをウィンドウ内に縮小表示します。
 
 「セッションを初期化」では全popupを閉じ、storage、cache、HTTP auth cache、接続、navigation historyを消去し、対象ページをcache無視で再読み込みします。
 
-## 撮影・合成フロー
+## 書き出しフロー
+
+保存またはコピーの操作ごとに、次の処理を最初から行います。
 
 1. 対象ビューを一時的に非表示にする
 2. 指定された論理ビューポートと1×/2×倍率を適用する
 3. Webフォント、2フレーム、ユーザー指定の待機時間を待つ
 4. 必要に応じてスクロールバー、キャレット、アニメーションを一時的に抑制する
-5. `capturePage()` でページ画像を取得し、PNGをMain Processのメモリに保持する
-6. UUID tokenを発行し、合成HTMLとページPNGを `frameshot-export:` resource storeへ登録する
-7. 非永続・cache無効のexport sessionを使う非表示BrowserWindowで、一度だけ取得可能なHTMLを読み込む
-8. Webフォントとページ画像の描画完了後に `capturePage()` で完成画像を取得する
-9. OSの表示倍率に差があれば、最終画像だけを正確な出力寸法へ正規化する
-10. 成功・失敗にかかわらずtoken、ページPNG、合成HTML、非表示ウィンドウを破棄する
+5. `capturePage()` で最新のページ画像を取得する
+6. UUID tokenを発行し、ページPNGを `frameshot-export:` resource storeへ登録する
+7. 非永続・cache無効のexport sessionを使う非表示BrowserWindowで、操作UIと同じReact bundleを `#export` モードで読み込む
+8. `CompositionCanvas` のページ領域だけを一度取得可能なページPNGへ差し替える
+9. Webフォントとページ画像の描画完了後に `capturePage()` で完成画像を取得する
+10. OSの表示倍率に差があれば、最終画像だけを正確な出力寸法へ正規化する
+11. 成功・失敗にかかわらずtoken、ページPNG、非表示ウィンドウを破棄する
 
-合成リソースには `no-store`、厳格なCSP、`nosniff`、`no-referrer`を適用します。合成HTMLやページPNGをOSの一時ファイルへ書き込みません。完成PNGは明示的な保存ダイアログまたはクリップボード操作だけでアプリ外へ出ます。
+ページ画像には `no-store`、`nosniff`、`no-referrer`を適用します。Renderer bundleには厳格なCSPを適用し、ページPNGをOSの一時ファイルへ書き込みません。完成PNGは明示的な保存ダイアログまたはクリップボード操作だけでアプリ外へ出ます。
 
-撮影と再合成は1件ずつ直列化します。出力画像と、撮影倍率適用後のページ画像には、それぞれ8,294,400画素の上限を設けています。
+書き出しは1件ずつ直列化します。出力画像と、倍率適用後のページ画像には、それぞれ8,294,400画素の上限を設けています。
 
-## 再合成とメモリ寿命
+## メモリ寿命
 
-最後に取得したページ画像と完成PNGはMain Processにのみ保持します。背景、枠、余白、影、出力寸法だけを変えた場合は、ページを再撮影せずに完成画像を作り直せます。
-
-論理ビューポート、デバイス種別、撮影倍率、待機時間、アニメーション設定を変えた場合、UIは再撮影を案内します。アプリ終了または撮影サービスの破棄時に画像を解放し、撮影履歴は保存しません。
+取得したページ画像と完成画像は、1回の書き出し処理中だけMain Processのメモリに存在します。前回のページ画像や完成PNGはキャッシュしません。背景や枠だけを変えた場合も、保存・コピー時には現在のページ状態を改めて取得します。撮影履歴は保存しません。
 
 ## 証明書例外
 

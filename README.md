@@ -14,12 +14,12 @@
 - Desktop / Mobile の論理ビューポート切り替え
 - Browser / Phone / None のフレーム切り替え
 - 出力サイズ、ページ表示サイズ、余白、角丸、影を個別に設定
-- 淡いグラデーションのプリセットと任意色
-- ページを再撮影せず、背景と枠だけを「再合成」
-- PNG保存、クリップボードへの画像コピー
+- 自然な濃さのグラデーションプリセットと任意色
+- ライブ表示と書き出しで同じキャンバス・CSSを使用
+- 保存・コピー時に最新のページ状態からPNGを自動生成
 - OAuthポップアップに対応した、アプリ起動中だけの専用セッション
 - 開発環境向けに、証明書検証エラーをホスト単位で許可
-- 設定プリセットのローカル保存
+- Electronのネイティブメニューバーを表示しない集中型UI
 
 ## すぐ試す
 
@@ -41,24 +41,21 @@ npm run demo
 npm start
 ```
 
-初期URLの `http://localhost:4321` を開き、中央のページを操作してから「撮影」を押してください。
+初期URLの `http://localhost:4321` を開き、中央のページを操作してから「保存」または「コピー」を押してください。
 
 ## 基本操作
 
 1. 上部のURL欄にセルフホストページのURLを入力します。
-2. 「操作」モードで、スクロール、ログイン、メニュー表示など撮りたい状態を作ります。
-3. Desktop / Mobile とフレームを選びます。
-4. 右側で出力サイズ、背景、余白、影などを調整します。
-5. 「撮影」で完成PNGを生成します。
-6. 見た目だけ変えた場合は「再合成」、ビューポートを変えた場合は「再撮影」を使います。
-7. 「PNG保存」または「コピー」で取り出します。
+2. 中央のライブ表示で、スクロール、ログイン、メニュー表示など書き出したい状態を作ります。
+3. ヘッダーのDesktop / Mobileからページ表示サイズを選びます。任意サイズは各リストのCustomから設定を開いて入力します。
+4. 必要に応じて設定を開き、出力サイズ、フレーム、背景、余白、影などを調整します。
+5. 「保存」または「コピー」を押します。その時点のページを自動取得し、ライブ表示と同じキャンバスから最新のPNGを生成します。
 
 ### キーボード
 
 | 操作 | キー |
 |---|---|
 | URL欄へ移動 | `Ctrl/Cmd + L` |
-| 撮影 | `Ctrl/Cmd + Enter` |
 | PNG保存 | `Ctrl/Cmd + S` |
 | 対象ページを再読み込み | `Ctrl/Cmd + R` |
 
@@ -66,23 +63,22 @@ npm start
 
 ```text
 BrowserWindow（React製の操作UI）
-├─ URL・プリセット・背景・出力設定
-└─ WebContentsView（非永続の専用セッション）
-   └─ 撮影対象ページ（専用セッション / sandbox）
-          │
-          ├─ capturePage() → ページ画像
-          │
-          ▼
-frameshot-export: + 非表示のExport BrowserWindow
-├─ 淡いグラデーション背景
-├─ Browser / Phone / None フレーム
-├─ 角丸・余白・影
-└─ ページ画像
-          │
-          └─ capturePage() → 完成PNG
+├─ CompositionCanvas（背景・枠・余白・影）
+│  └─ WebContentsView（操作可能な対象ページ）
+└─ URL・viewport・詳細設定・保存／コピー
+                 │ 保存／コピー
+                 ▼
+TargetBrowserController.capturePage() → 最新のページPNG
+                 │
+                 ▼
+非表示のExport BrowserWindow（同じReact bundle）
+└─ CompositionCanvas（同じマークアップ・CSS）
+   └─ ページ部分だけframeshot-export:画像へ差し替え
+                 │
+                 └─ capturePage() → 完成PNG
 ```
 
-操作UIは本番ビルドでは `frameshot-app://app/` から配信され、外部通信を許可しないCSPを適用します。対象ページとは別のWebContentsで、ページ側にはNode.jsやIPC APIを公開しません。完成画像は `frameshot-export:` でメモリから供給する出力専用ウィンドウで正確な寸法に合成します。
+操作UIは本番ビルドでは `frameshot-app://app/` から配信され、外部通信を許可しないCSPを適用します。対象ページとは別のWebContentsで、ページ側にはNode.jsやIPC APIを公開しません。ライブ表示と非表示の書き出しRendererは同じ `CompositionCanvas` とCSSを使い、後者だけがページ領域を `frameshot-export:` のインメモリ画像へ差し替えて正確な寸法で出力します。
 
 詳しくは [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) を参照してください。
 
@@ -113,7 +109,7 @@ Cookie、LocalStorage、HTTP認証キャッシュなどのログイン情報は�
 - PNG合成データを `frameshot-export:` 経由で完全にメモリ内処理
 - 出力画像と撮影倍率適用後のページ画像を各8,294,400画素以下に制限
 
-完成PNGはOSの保存ダイアログで選んだ場所へ保存するか、クリップボードへコピーした場合だけアプリ外へ出ます。合成HTMLやページPNGを一時ファイルへ書き出しません。
+完成PNGはOSの保存ダイアログで選んだ場所へ保存するか、クリップボードへコピーした場合だけアプリ外へ出ます。ページPNGを一時ファイルへ書き出しません。
 
 ### WebGL互換モード
 
@@ -153,16 +149,17 @@ src/
 │  ├─ main.ts                        Electron起動
 │  ├─ app-protocol.ts                操作UI用frameshot-app:配信
 │  ├─ target-browser-controller.ts   WebContentsViewと撮影対象
-│  ├─ capture-service.ts             PNG合成・保存・コピー
-│  ├─ export-protocol.ts             インメモリ合成リソース
-│  ├─ composition-html.ts            出力専用HTML/CSS
+│  ├─ export-service.ts              最新ページの取得・合成・出力
+│  ├─ export-protocol.ts             ページPNGの一時インメモリ配信
 │  ├─ security.ts                    セッション権限と証明書
 │  └─ ipc.ts                         検証付きIPC
 ├─ preload/
 │  └─ preload.ts                     最小APIを公開
 ├─ renderer/
 │  ├─ App.tsx
+│  ├─ ExportRenderer.tsx             非表示の書き出しRenderer
 │  ├─ components/
+│  │  └─ CompositionCanvas.tsx       ライブ・書き出し共通キャンバス
 │  └─ styles.css
 └─ shared/
    ├─ types.ts

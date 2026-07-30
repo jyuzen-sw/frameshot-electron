@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { CAPTURE_PRESETS, DEFAULT_SETTINGS } from '@shared/presets';
+import {
+  DEFAULT_SETTINGS,
+  VIEWPORT_PRESETS,
+  applyViewportPreset,
+} from '@shared/presets';
 import {
   MAX_CAPTURE_PIXELS,
   validateCaptureSettings,
@@ -7,9 +11,10 @@ import {
 } from '@shared/validation';
 
 describe('capture settings validation', () => {
-  it('accepts every built-in preset', () => {
-    for (const preset of CAPTURE_PRESETS) {
-      expect(validateCaptureSettings(preset.settings)).toEqual(preset.settings);
+  it('accepts every built-in viewport preset', () => {
+    for (const preset of VIEWPORT_PRESETS) {
+      const settings = applyViewportPreset(DEFAULT_SETTINGS, preset);
+      expect(validateCaptureSettings(settings)).toEqual(settings);
     }
   });
 

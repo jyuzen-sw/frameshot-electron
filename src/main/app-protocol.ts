@@ -5,10 +5,11 @@ import { pathToFileURL } from 'node:url';
 export const APP_SCHEME = 'frameshot-app';
 export const APP_HOST = 'app';
 export const APP_ENTRY_URL = `${APP_SCHEME}://${APP_HOST}/index.html`;
+export const EXPORT_RENDERER_HASH = '#export';
 
 const APP_CSP = [
   "default-src 'self'",
-  "img-src 'self' data:",
+  "img-src 'self' data: frameshot-export:",
   "style-src 'self' 'unsafe-inline'",
   "script-src 'self'",
   "connect-src 'none'",
@@ -65,7 +66,7 @@ export function resolveBundledRendererPath(
     parsed.username ||
     parsed.password ||
     parsed.search ||
-    parsed.hash
+    (parsed.hash !== '' && parsed.hash !== EXPORT_RENDERER_HASH)
   ) {
     return null;
   }

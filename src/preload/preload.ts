@@ -1,8 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from '@shared/ipc';
 import type {
-  AppCommand,
+  AppShortcut,
   CaptureSettings,
+  ExportDestination,
   FrameShotApi,
   NavigationState,
   TargetViewLayout,
@@ -16,12 +17,10 @@ const api: FrameShotApi = {
   setTargetLayout: (layout: TargetViewLayout) => {
     ipcRenderer.send(IPC.setLayout, layout);
   },
-  capture: (settings: CaptureSettings) =>
-    ipcRenderer.invoke(IPC.capture, settings),
-  recompose: (settings: CaptureSettings) =>
-    ipcRenderer.invoke(IPC.recompose, settings),
-  saveCapture: () => ipcRenderer.invoke(IPC.save),
-  copyCapture: () => ipcRenderer.invoke(IPC.copy),
+  exportImage: (
+    settings: CaptureSettings,
+    destination: ExportDestination,
+  ) => ipcRenderer.invoke(IPC.exportImage, settings, destination),
   resetSession: () => ipcRenderer.invoke(IPC.resetSession),
   openTargetDevTools: () => ipcRenderer.invoke(IPC.openDevTools),
   getPreferences: () => ipcRenderer.invoke(IPC.getPreferences),
@@ -33,11 +32,13 @@ const api: FrameShotApi = {
     ipcRenderer.on(IPC.navigationState, handler);
     return () => ipcRenderer.removeListener(IPC.navigationState, handler);
   },
-  onAppCommand: (listener: (command: AppCommand) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, command: AppCommand) =>
-      listener(command);
-    ipcRenderer.on(IPC.appCommand, handler);
-    return () => ipcRenderer.removeListener(IPC.appCommand, handler);
+  onAppShortcut: (listener: (shortcut: AppShortcut) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      shortcut: AppShortcut,
+    ) => listener(shortcut);
+    ipcRenderer.on(IPC.appShortcut, handler);
+    return () => ipcRenderer.removeListener(IPC.appShortcut, handler);
   },
 };
 

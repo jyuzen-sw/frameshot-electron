@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Session } from 'electron';
+import { protocol, type Session } from 'electron';
 
 export const EXPORT_SCHEME = 'frameshot-export';
 export const EXPORT_PARTITION = 'frameshot-export';
@@ -9,13 +9,11 @@ const TOKEN_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 interface ExportResource {
-  document: string | null;
-  pagePng: Uint8Array<ArrayBuffer>;
+  pagePng: Uint8Array<ArrayBuffer> | null;
 }
 
 export interface ExportResourceUrls {
   token: string;
-  documentUrl: string;
   pageImageUrl: string;
 }
 
@@ -24,20 +22,6 @@ const NO_STORE_HEADERS = {
   Pragma: 'no-cache',
   'Referrer-Policy': 'no-referrer',
   'X-Content-Type-Options': 'nosniff',
-};
-
-const DOCUMENT_HEADERS = {
-  ...NO_STORE_HEADERS,
-  'Content-Type': 'text/html; charset=utf-8',
-  'Content-Security-Policy': [
-    "default-src 'none'",
-    `img-src ${EXPORT_SCHEME}:`,
-    "style-src 'unsafe-inline'",
-    "script-src 'none'",
-    "base-uri 'none'",
-    "form-action 'none'",
-    "frame-ancestors 'none'",
-  ].join('; '),
 };
 
 function response(status: number, body: string): Response {
@@ -57,21 +41,33 @@ export function exportResourceUrls(token: string): ExportResourceUrls {
   const baseUrl = `${EXPORT_SCHEME}://${EXPORT_HOST}/${token}`;
   return {
     token,
-    documentUrl: `${baseUrl}/document`,
     pageImageUrl: `${baseUrl}/page.png`,
   };
+}
+
+export function registerExportSchemePrivileges(): void {
+  protocol.registerSchemesAsPrivileged([
+    {
+      scheme: EXPORT_SCHEME,
+      privileges: {
+        standard: true,
+        secure: true,
+        bypassCSP: false,
+        allowServiceWorkers: false,
+        supportFetchAPI: false,
+        corsEnabled: false,
+        stream: false,
+      },
+    },
+  ]);
 }
 
 export class ExportResourceStore {
   private readonly resources = new Map<string, ExportResource>();
 
-  public create(
-    pagePng: Uint8Array,
-    buildDocument: (urls: ExportResourceUrls) => string,
-  ): ExportResourceUrls {
+  public create(pagePng: Uint8Array): ExportResourceUrls {
     const urls = exportResourceUrls(randomUUID());
     this.resources.set(urls.token, {
-      document: buildDocument(urls),
       pagePng: Uint8Array.from(pagePng),
     });
     return urls;
@@ -127,20 +123,13 @@ export class ExportResourceStore {
       return response(404, 'Not Found');
     }
 
-    if (resourceName === 'document') {
-      if (resource.document === null) {
+    if (resourceName === 'page.png') {
+      if (resource.pagePng === null) {
         return response(410, 'Gone');
       }
-      const document = resource.document;
-      resource.document = null;
-      return new Response(document, {
-        status: 200,
-        headers: DOCUMENT_HEADERS,
-      });
-    }
-
-    if (resourceName === 'page.png') {
-      return new Response(resource.pagePng.slice(), {
+      const pagePng = resource.pagePng;
+      resource.pagePng = null;
+      return new Response(pagePng.slice(), {
         status: 200,
         headers: {
           ...NO_STORE_HEADERS,
