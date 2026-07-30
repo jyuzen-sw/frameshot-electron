@@ -29,40 +29,65 @@ interface CdpResponse {
   error?: { message?: string };
 }
 
+interface PendingCdpRequest {
+  method: string;
+  resolve: (response: CdpResponse) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const CDP_COMMAND_TIMEOUT_MS = 15_000;
+
+function logE2e(message: string): void {
+  console.log(`[e2e] ${new Date().toISOString()} ${message}`);
+}
+
+function logElectronOutput(output: string): void {
+  console.error(
+    `[e2e] ${new Date().toISOString()} Electron process output:\n${
+      output || '(no output captured)'
+    }`,
+  );
+}
+
 class CdpPage {
   private nextId = 1;
-  private readonly pending = new Map<
-    number,
-    {
-      resolve: (response: CdpResponse) => void;
-      reject: (error: Error) => void;
-    }
-  >();
+  private readonly pending = new Map<number, PendingCdpRequest>();
 
   private constructor(private readonly socket: WebSocket) {
     socket.addEventListener('message', (event) => {
       const message = JSON.parse(String(event.data)) as CdpResponse;
       if (message.id === undefined) return;
-      const request = this.pending.get(message.id);
+      const request = this.takePending(message.id);
       if (!request) return;
-      this.pending.delete(message.id);
       if (message.error) {
         request.reject(
-          new Error(message.error.message ?? 'DevTools command failed.'),
+          new Error(
+            `DevTools command ${request.method} (id ${message.id}) failed: ${
+              message.error.message ?? 'unknown DevTools error'
+            }`,
+          ),
         );
       } else {
         request.resolve(message);
       }
     });
     socket.addEventListener('close', () => {
-      for (const request of this.pending.values()) {
-        request.reject(new Error('DevTools connection closed.'));
-      }
+      const pending = [...this.pending.entries()];
       this.pending.clear();
+      for (const [id, request] of pending) {
+        clearTimeout(request.timer);
+        request.reject(
+          new Error(
+            `DevTools connection closed while waiting for ${request.method} (id ${id}).`,
+          ),
+        );
+      }
     });
   }
 
   public static async connect(endpoint: string): Promise<CdpPage> {
+    logE2e('Connecting to the main page DevTools WebSocket.');
     const socket = new WebSocket(endpoint);
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(
@@ -73,6 +98,7 @@ class CdpPage {
         'open',
         () => {
           clearTimeout(timeout);
+          logE2e('Main page DevTools WebSocket connected.');
           resolve();
         },
         { once: true },
@@ -88,6 +114,7 @@ class CdpPage {
     });
     const page = new CdpPage(socket);
     await page.send('Runtime.enable');
+    logE2e('Runtime.enable completed.');
     return page;
   }
 
@@ -116,16 +143,50 @@ class CdpPage {
   private send(
     method: string,
     params: Record<string, unknown> = {},
+    timeoutMs = CDP_COMMAND_TIMEOUT_MS,
   ): Promise<CdpResponse> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.socket.send(JSON.stringify({ id, method, params }));
+      const timer = setTimeout(() => {
+        const request = this.takePending(id);
+        if (!request) return;
+        request.reject(
+          new Error(
+            `DevTools command ${method} (id ${id}) timed out after ${
+              timeoutMs / 1_000
+            } seconds (${timeoutMs} ms).`,
+          ),
+        );
+      }, timeoutMs);
+      this.pending.set(id, { method, resolve, reject, timer });
+      try {
+        this.socket.send(JSON.stringify({ id, method, params }));
+      } catch (error) {
+        this.takePending(id);
+        reject(
+          new Error(
+            `Could not send DevTools command ${method} (id ${id}): ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          ),
+        );
+      }
     });
+  }
+
+  private takePending(id: number): PendingCdpRequest | undefined {
+    const request = this.pending.get(id);
+    if (!request) return undefined;
+    this.pending.delete(id);
+    clearTimeout(request.timer);
+    return request;
   }
 }
 
 function packagedExecutable(): string {
+  logE2e(
+    `Resolving packaged executable for ${process.platform}/${process.arch}.`,
+  );
   const outDirectory = path.resolve('out');
   const suffix = `-${process.platform}-${process.arch}`;
   const packageDirectory = fs
@@ -137,30 +198,45 @@ function packagedExecutable(): string {
   }
 
   const base = path.join(outDirectory, packageDirectory.name);
-  if (process.platform === 'win32') return path.join(base, 'frameshot.exe');
-  if (process.platform === 'darwin') {
+  let executable: string;
+  if (process.platform === 'win32') {
+    executable = path.join(base, 'frameshot.exe');
+  } else if (process.platform === 'darwin') {
     const appBundle = fs
       .readdirSync(base, { withFileTypes: true })
       .find((entry) => entry.isDirectory() && entry.name.endsWith('.app'));
     if (!appBundle) throw new Error('macOS app bundle was not found.');
-    return path.join(base, appBundle.name, 'Contents', 'MacOS', 'frameshot');
+    executable = path.join(
+      base,
+      appBundle.name,
+      'Contents',
+      'MacOS',
+      'frameshot',
+    );
+  } else {
+    executable = path.join(base, 'frameshot');
   }
-  return path.join(base, 'frameshot');
+  logE2e(`Packaged executable resolved: ${executable}`);
+  return executable;
 }
 
 async function waitForDevToolsEndpoint(
   child: ChildProcess,
   readOutput: () => string,
 ): Promise<string> {
+  logE2e('Waiting for the browser DevTools endpoint.');
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     const match = readOutput().match(
       /DevTools listening on (ws:\/\/127\.0\.0\.1:\d+\/devtools\/browser\/[^\s]+)/,
     );
-    if (match?.[1]) return match[1];
-    if (child.exitCode !== null) {
+    if (match?.[1]) {
+      logE2e('Browser DevTools endpoint detected.');
+      return match[1];
+    }
+    if (childProcessStopped(child)) {
       throw new Error(
-        `FrameShot exited before DevTools became ready (${child.exitCode}).\n${readOutput()}`,
+        `FrameShot exited before DevTools became ready (${childProcessResult(child)}).\n${readOutput()}`,
       );
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -171,6 +247,7 @@ async function waitForDevToolsEndpoint(
 async function waitForMainPageEndpoint(
   browserEndpoint: string,
 ): Promise<string> {
+  logE2e('Waiting for the main page DevTools endpoint.');
   const browserUrl = new URL(browserEndpoint);
   const listUrl = `http://${browserUrl.host}/json/list`;
   const deadline = Date.now() + 20_000;
@@ -185,6 +262,7 @@ async function waitForMainPageEndpoint(
       target.url?.startsWith('frameshot-app://app/'),
     );
     if (mainTarget?.webSocketDebuggerUrl) {
+      logE2e('Main page DevTools endpoint detected.');
       return mainTarget.webSocketDebuggerUrl;
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -192,9 +270,26 @@ async function waitForMainPageEndpoint(
   throw new Error('FrameShotの操作画面がDevToolsへ公開されませんでした。');
 }
 
+function childProcessStopped(child: ChildProcess): boolean {
+  return (
+    child.pid === undefined ||
+    child.exitCode !== null ||
+    child.signalCode !== null
+  );
+}
+
+function childProcessResult(child: ChildProcess): string {
+  if (child.exitCode !== null) return `exit code ${child.exitCode}`;
+  if (child.signalCode !== null) return `signal ${child.signalCode}`;
+  return 'unknown status';
+}
+
 async function launchPackagedApp(tempDirectory: string): Promise<RunningApp> {
+  const executable = packagedExecutable();
+  logE2e('Spawning the packaged Electron application.');
+  let processOutput = '';
   const child = spawn(
-    packagedExecutable(),
+    executable,
     [
       '--remote-debugging-port=0',
       '--enable-logging=stderr',
@@ -211,42 +306,172 @@ async function launchPackagedApp(tempDirectory: string): Promise<RunningApp> {
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   );
-  let processOutput = '';
+  const spawned = waitForChildProcessSpawn(child);
   child.stdout?.on('data', (chunk) => {
     processOutput += String(chunk);
   });
   child.stderr?.on('data', (chunk) => {
     processOutput += String(chunk);
   });
+  child.on('error', (error) => {
+    processOutput += `Electron process error: ${error.message}\n`;
+  });
 
   const output = () => processOutput;
   try {
+    await spawned;
+    logE2e(
+      `Packaged Electron process spawned (pid ${child.pid ?? 'unknown'}).`,
+    );
     const browserEndpoint = await waitForDevToolsEndpoint(child, output);
     const pageEndpoint = await waitForMainPageEndpoint(browserEndpoint);
     const cdp = await CdpPage.connect(pageEndpoint);
+    logE2e('Packaged Electron application launch completed.');
     return { cdp, child, output };
   } catch (error) {
-    child.kill('SIGTERM');
+    logE2e(
+      'Packaged Electron application launch failed; dumping output before shutdown.',
+    );
+    logElectronOutput(processOutput);
+    try {
+      await stopChildProcess(child);
+    } catch (shutdownError) {
+      throw new AggregateError(
+        [error, shutdownError],
+        'Packaged Electron application launch and shutdown both failed.',
+      );
+    }
     throw error;
   }
 }
 
-async function stopPackagedApp(app: RunningApp): Promise<void> {
-  app.cdp.close();
-  if (app.child.exitCode !== null) return;
+function waitForChildProcessSpawn(child: ChildProcess): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onSpawn = () => {
+      child.off('error', onError);
+      resolve();
+    };
+    const onError = (error: Error) => {
+      child.off('spawn', onSpawn);
+      reject(
+        new Error(`Could not spawn the Electron process: ${error.message}`),
+      );
+    };
 
-  app.child.kill('SIGTERM');
-  await Promise.race([
-    once(app.child, 'exit'),
-    new Promise((resolve) => setTimeout(resolve, 3000)),
-  ]);
-  if (app.child.exitCode === null) {
-    app.child.kill('SIGKILL');
-    await once(app.child, 'exit').catch(() => undefined);
+    child.once('spawn', onSpawn);
+    child.once('error', onError);
+  });
+}
+
+async function stopChildProcess(child: ChildProcess): Promise<void> {
+  if (childProcessStopped(child)) {
+    logE2e(`Electron process already stopped (${childProcessResult(child)}).`);
+    return;
   }
+
+  logE2e('Stopping the Electron process with SIGTERM.');
+  const terminated = child.kill('SIGTERM');
+  if (!terminated && !childProcessStopped(child)) {
+    throw new Error('Could not send SIGTERM to the Electron process.');
+  }
+  if (await waitForChildProcessToStop(child, 3000)) {
+    logE2e(`Electron process stopped (${childProcessResult(child)}).`);
+    return;
+  }
+
+  logE2e('Electron process did not stop in time; sending SIGKILL.');
+  const killed = child.kill('SIGKILL');
+  if (!killed && !childProcessStopped(child)) {
+    throw new Error('Could not send SIGKILL to the Electron process.');
+  }
+  if (!(await waitForChildProcessToStop(child, 3000))) {
+    throw new Error(
+      `Electron process did not stop after SIGKILL (pid ${child.pid ?? 'unknown'}).`,
+    );
+  }
+  logE2e(`Electron process stopped (${childProcessResult(child)}).`);
+}
+
+function waitForChildProcessToStop(
+  child: ChildProcess,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (childProcessStopped(child)) return Promise.resolve(true);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (stopped: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      child.off('exit', onExit);
+      child.off('error', onError);
+      resolve(stopped);
+    };
+    const onExit = () => finish(true);
+    const onError = () => finish(childProcessStopped(child));
+
+    child.once('exit', onExit);
+    child.once('error', onError);
+    timer = setTimeout(() => finish(childProcessStopped(child)), timeoutMs);
+
+    if (settled) {
+      clearTimeout(timer);
+    } else if (childProcessStopped(child)) {
+      finish(true);
+    }
+  });
+}
+
+async function stopPackagedApp(app: RunningApp): Promise<void> {
+  logE2e('Closing the page DevTools connection.');
+  app.cdp.close();
+  await stopChildProcess(app.child);
+}
+
+async function cleanupScenario(
+  name: string,
+  app: RunningApp | null,
+  fixtureServer: Server,
+  tempDirectory: string,
+  primaryError: unknown,
+): Promise<void> {
+  logE2e(`Cleaning up the ${name} scenario.`);
+  const cleanupErrors: unknown[] = [];
+
+  try {
+    if (app) await stopPackagedApp(app);
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  try {
+    fixtureServer.close();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  try {
+    fs.rmSync(tempDirectory, { recursive: true, force: true });
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+
+  if (cleanupErrors.length === 0) {
+    logE2e(`${name} scenario cleanup completed.`);
+    return;
+  }
+
+  logE2e(`${name} scenario cleanup completed with errors.`);
+  throw new AggregateError(
+    primaryError === undefined
+      ? cleanupErrors
+      : [primaryError, ...cleanupErrors],
+    `${name} scenario cleanup failed.`,
+  );
 }
 
 async function startFixtureServer(): Promise<{ server: Server; url: string }> {
+  logE2e('Starting the local fixture server.');
   const server = createServer((request, response) => {
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     if (request.url?.startsWith('/session')) {
@@ -289,6 +514,7 @@ async function startFixtureServer(): Promise<{ server: Server; url: string }> {
   if (!address || typeof address === 'string') {
     throw new Error('Fixture server failed to start.');
   }
+  logE2e('Local fixture server is listening.');
   return { server, url: `http://127.0.0.1:${address.port}` };
 }
 
@@ -302,9 +528,11 @@ async function waitForMainUi(cdp: CdpPage): Promise<void> {
       { timeout: 20_000 },
     )
     .toBe(true);
+  logE2e('Main UI is ready.');
 }
 
 async function navigateFromMainUi(cdp: CdpPage, url: string): Promise<void> {
+  logE2e('Submitting a fixture navigation from the main UI.');
   await cdp.evaluate(`
     (async () => {
       const input = document.querySelector('input[aria-label="URL"]');
@@ -326,6 +554,7 @@ async function navigateFromMainUi(cdp: CdpPage, url: string): Promise<void> {
       input.form.requestSubmit();
     })()
   `);
+  logE2e('Fixture navigation was submitted.');
 }
 
 async function waitForMainText(cdp: CdpPage, text: string): Promise<void> {
@@ -338,6 +567,7 @@ async function waitForMainText(cdp: CdpPage, text: string): Promise<void> {
       { timeout: 20_000 },
     )
     .toBe(true);
+  logE2e('Fixture transition was confirmed in the main UI.');
 }
 
 test('opens a WebGL2 page and creates an in-memory composed preview', async () => {
@@ -346,6 +576,7 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
     path.join(os.tmpdir(), 'frameshot-e2e-'),
   );
   let app: RunningApp | null = null;
+  let scenarioError: unknown;
 
   try {
     app = await launchPackagedApp(tempDirectory);
@@ -444,6 +675,7 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
 
     await navigateFromMainUi(cdp, fixture.url);
     await waitForMainText(cdp, 'FrameShot fixture — WebGL2 ready');
+    logE2e('WebGL2 fixture is ready.');
 
     const addressCenterDelta = await cdp.evaluate<number>(`
       (() => {
@@ -488,6 +720,7 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
         button.click();
       })()
     `);
+    logE2e('Capture was requested.');
     await expect
       .poll(
         () =>
@@ -505,6 +738,7 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
         { timeout: 30_000 },
       )
       .toBe(true);
+    logE2e('Capture completed and the composed preview is ready.');
 
     const layout = calculateCompositionLayout(DEFAULT_SETTINGS);
     const samplePoint = {
@@ -596,6 +830,7 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
     await cdp.evaluate(`
       document.querySelector('.toolbar-context-action')?.click()
     `);
+    logE2e('Recompose was requested.');
     let recomposeOutcome = 'pending';
     await expect
       .poll(
@@ -634,20 +869,26 @@ test('opens a WebGL2 page and creates an in-memory composed preview', async () =
         `Header recompose failed: ${recomposeOutcome}; ${JSON.stringify(diagnostics)}`,
       );
     }
+    logE2e('Recompose completed.');
 
     const leakedFiles = fs
       .readdirSync(tempDirectory)
       .filter((name) => name.startsWith('frameshot-export-'));
     expect(leakedFiles).toEqual([]);
   } catch (error) {
+    scenarioError = error;
     if (app) {
-      console.error(`FrameShot process output:\n${app.output()}`);
+      logElectronOutput(app.output());
     }
     throw error;
   } finally {
-    if (app) await stopPackagedApp(app);
-    fixture.server.close();
-    fs.rmSync(tempDirectory, { recursive: true, force: true });
+    await cleanupScenario(
+      'WebGL2 capture',
+      app,
+      fixture.server,
+      tempDirectory,
+      scenarioError,
+    );
   }
 });
 
@@ -658,14 +899,17 @@ test('keeps target cookies only for the current app process', async () => {
   );
   const sessionUrl = new URL('/session', fixture.url).href;
   let app: RunningApp | null = null;
+  let scenarioError: unknown;
 
   try {
     app = await launchPackagedApp(tempDirectory);
     await waitForMainUi(app.cdp);
     await navigateFromMainUi(app.cdp, `${sessionUrl}?visit=first`);
     await waitForMainText(app.cdp, 'FrameShot session — fresh');
+    logE2e('Fresh session state was confirmed for the first visit.');
     await navigateFromMainUi(app.cdp, `${sessionUrl}?visit=second`);
     await waitForMainText(app.cdp, 'FrameShot session — reused');
+    logE2e('Reused session state was confirmed within the current process.');
 
     await app.cdp.evaluate(`
       document.querySelector('button[aria-controls="settings-panel"]')?.click()
@@ -680,11 +924,14 @@ test('keeps target cookies only for the current app process', async () => {
       )
       .toBe(true);
 
+    logE2e('Stopping the first session process before restart.');
     await stopPackagedApp(app);
     app = null;
 
+    logE2e('Restarting the packaged application for session isolation.');
     app = await launchPackagedApp(tempDirectory);
     await waitForMainUi(app.cdp);
+    logE2e('Packaged application restart completed.');
     expect(
       await app.cdp.evaluate<boolean>(
         `document.querySelector('button[aria-controls="settings-panel"]')?.getAttribute('aria-expanded') === 'true'`,
@@ -692,14 +939,20 @@ test('keeps target cookies only for the current app process', async () => {
     ).toBe(true);
     await navigateFromMainUi(app.cdp, `${sessionUrl}?visit=restart`);
     await waitForMainText(app.cdp, 'FrameShot session — fresh');
+    logE2e('Fresh session state was confirmed after restart.');
   } catch (error) {
+    scenarioError = error;
     if (app) {
-      console.error(`FrameShot process output:\n${app.output()}`);
+      logElectronOutput(app.output());
     }
     throw error;
   } finally {
-    if (app) await stopPackagedApp(app);
-    fixture.server.close();
-    fs.rmSync(tempDirectory, { recursive: true, force: true });
+    await cleanupScenario(
+      'session isolation',
+      app,
+      fixture.server,
+      tempDirectory,
+      scenarioError,
+    );
   }
 });

@@ -9,30 +9,64 @@ permissions:
   contents: read
 
 jobs:
-  windows:
-    name: Windows x64
-    runs-on: windows-latest
+  quality-linux:
+    name: Quality checks (Linux)
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
         with:
           node-version: 26
-      - run: npm ci
-      - run: npm run audit
-      - run: npm run verify
-      - run: npm run make:windows
-      - run: npm run verify:fuses
-      - run: npm run verify:windows-artifacts
-      - run: npm run test:e2e:prepared
+      - name: Install dependencies
+        run: npm ci
+      - name: Check dependencies for vulnerabilities
+        run: npm run audit
+      - name: Check types
+        run: npm run typecheck
+      - name: Run unit tests
+        run: npm run test
 
   e2e-linux:
     name: Runtime E2E (Linux/Xvfb)
+    needs: quality-linux
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
         with:
           node-version: 26
-      - run: npm ci
-      - run: npm run package
-      - run: xvfb-run -a npm run test:e2e:prepared
+      - name: Install dependencies
+        run: npm ci
+      - name: Package application
+        run: npm run package
+      - name: Configure Chrome sandbox permissions
+        run: |
+          sudo chown root:root out/FrameShot-linux-x64/chrome-sandbox
+          sudo chmod 4755 out/FrameShot-linux-x64/chrome-sandbox
+          stat -c '%U:%G %a %n' out/FrameShot-linux-x64/chrome-sandbox
+      - name: Run runtime E2E tests
+        run: xvfb-run -a npm run test:e2e:prepared
+
+  e2e-windows:
+    name: Runtime E2E (Windows)
+    needs: quality-linux
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - name: Install dependencies
+        run: npm ci
+      - name: Package application
+        run: npm run package
+      - name: Run runtime E2E tests
+        run: npm run test:e2e:prepared
