@@ -29,7 +29,7 @@ jobs:
         run: npm run test
 
   e2e-linux:
-    name: Runtime E2E (Linux/Xvfb)
+    name: Runtime E2E (Linux/headless)
     needs: quality-linux
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -49,11 +49,11 @@ jobs:
           sudo chown root:root out/FrameShot-linux-x64/chrome-sandbox
           sudo chmod 4755 out/FrameShot-linux-x64/chrome-sandbox
           stat -c '%U:%G %a %n' out/FrameShot-linux-x64/chrome-sandbox
-      - name: Run runtime E2E tests
-        run: xvfb-run -a npm run test:e2e:prepared
+      - name: Run headless runtime E2E tests
+        run: npm run test:e2e:prepared
 
   e2e-windows:
-    name: Runtime E2E (Windows)
+    name: Runtime E2E (Windows/headless)
     needs: quality-linux
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: windows-latest
@@ -68,5 +68,5 @@ jobs:
         run: npm ci
       - name: Package application
         run: npm run package
-      - name: Run runtime E2E tests
+      - name: Run headless runtime E2E tests
         run: npm run test:e2e:prepared

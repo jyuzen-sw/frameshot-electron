@@ -36,6 +36,29 @@ describe('calculateCompositionLayout', () => {
     expect(layout.browserAddressHeight).toBe(0);
   });
 
+  it('adds uniform bezels and dedicated radii for a tablet frame', () => {
+    const layout = calculateCompositionLayout({
+      ...DEFAULT_SETTINGS,
+      outputWidth: 1600,
+      outputHeight: 1600,
+      viewportWidth: 768,
+      viewportHeight: 1024,
+      frameStyle: 'tablet',
+      deviceMode: 'mobile',
+    });
+
+    expect(layout.tabletBezel.left / layout.scale).toBeCloseTo(28, 5);
+    expect(layout.tabletBezel.top / layout.scale).toBeCloseTo(28, 5);
+    expect(layout.tabletBezel.right / layout.scale).toBeCloseTo(28, 5);
+    expect(layout.tabletBezel.bottom / layout.scale).toBeCloseTo(28, 5);
+    expect(layout.frame.radius / layout.scale).toBeCloseTo(42, 5);
+    expect(layout.screen.radius / layout.scale).toBeCloseTo(22, 5);
+    expect(layout.screen.x).toBeGreaterThan(layout.frame.x);
+    expect(layout.screen.y).toBeGreaterThan(layout.frame.y);
+    expect(layout.phoneBezel.left).toBe(0);
+    expect(layout.browserBarHeight).toBe(0);
+  });
+
   it('calculates a bounded preview size', () => {
     const preview = calculatePreviewCanvasSize(1000, 700, 1920, 1080, 40);
     expect(preview.width).toBeLessThanOrEqual(920);

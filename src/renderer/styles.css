@@ -426,6 +426,27 @@ svg {
   cursor: pointer;
 }
 
+.viewport-menu-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.viewport-menu-group + .viewport-menu-group {
+  margin-top: 3px;
+  padding-top: 5px;
+  border-top: 1px solid var(--line);
+}
+
+.viewport-menu-heading {
+  padding: 2px 9px 1px;
+  color: #64748b;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .viewport-menu-list button:hover,
 .viewport-menu-list button:focus-visible,
 .viewport-menu-list button.selected {
@@ -615,6 +636,7 @@ html[data-renderer="export"] .composition-canvas {
 
 .composition-browser-frame,
 .composition-phone-frame,
+.composition-tablet-frame,
 .composition-plain-frame,
 .composition-frame-shadow {
   position: absolute;
@@ -745,6 +767,35 @@ html[data-renderer="export"] .composition-canvas {
   display: block;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.82);
+  transform: translateX(-50%);
+}
+
+.composition-tablet-frame {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  outline: 1px solid rgba(0, 0, 0, 0.65);
+  background: linear-gradient(145deg, #343b4a 0%, #111722 52%, #272e3b 100%);
+}
+
+.composition-tablet-highlight {
+  position: absolute;
+  z-index: 3;
+  inset: 1px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.composition-tablet-camera {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  display: block;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #536078, #030712 68%);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.55),
+    inset 0 1px 1px rgba(255, 255, 255, 0.12);
   transform: translateX(-50%);
 }
 
@@ -1128,7 +1179,7 @@ html[data-renderer="export"] .composition-canvas {
 
 .frame-selector {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 5px;
   margin-bottom: 13px;
 }
@@ -1157,6 +1208,25 @@ html[data-renderer="export"] .composition-canvas {
 }
 
 .frame-selector svg { width: 15px; height: 15px; }
+.frame-tablet-icon {
+  position: relative;
+  width: 13px;
+  height: 17px;
+  display: block;
+  border: 1.5px solid currentColor;
+  border-radius: 2.5px;
+}
+.frame-tablet-icon::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 1px;
+  width: 1.5px;
+  height: 1.5px;
+  border-radius: 50%;
+  background: currentColor;
+  transform: translateX(-50%);
+}
 .frame-none-icon { font-size: 16px; line-height: 1; }
 
 .range-field {

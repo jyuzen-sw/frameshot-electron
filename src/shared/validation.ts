@@ -39,7 +39,12 @@ function deviceMode(value: unknown): DeviceMode {
 }
 
 function frameStyle(value: unknown): FrameStyle {
-  if (value !== 'browser' && value !== 'phone' && value !== 'none') {
+  if (
+    value !== 'browser' &&
+    value !== 'phone' &&
+    value !== 'tablet' &&
+    value !== 'none'
+  ) {
     throw new Error('フレーム種別が不正です。');
   }
   return value;

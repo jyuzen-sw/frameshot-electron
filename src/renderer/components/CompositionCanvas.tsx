@@ -54,6 +54,7 @@ export function CompositionCanvas({
   const dotGap = Math.max(5, 8 * layout.scale);
   const barPadding = Math.max(10, 18 * layout.scale);
   const fontSize = Math.max(10, Math.min(16, 13 * layout.scale));
+  const tabletCameraSize = 8 * layout.scale;
 
   const pageSlot = (
     <div
@@ -151,6 +152,24 @@ export function CompositionCanvas({
           width: px(Math.min(layout.screen.width * 0.32, 116 * layout.scale)),
         }}
       />
+    </section>
+  ) : settings.frameStyle === 'tablet' ? (
+    <section
+      className="composition-tablet-frame composition-frame-shadow"
+      style={frameStyle}
+    >
+      <span className="composition-tablet-highlight" />
+      <span
+        className="composition-tablet-camera"
+        style={{
+          width: px(tabletCameraSize),
+          height: px(tabletCameraSize),
+          top: px(
+            Math.max(0, (layout.tabletBezel.top - tabletCameraSize) / 2),
+          ),
+        }}
+      />
+      {pageSlot}
     </section>
   ) : (
     <section

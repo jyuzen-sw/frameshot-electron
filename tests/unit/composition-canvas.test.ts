@@ -51,7 +51,7 @@ describe('CompositionCanvas', () => {
     );
   });
 
-  it.each(['browser', 'phone', 'none'] as const)(
+  it.each(['browser', 'phone', 'tablet', 'none'] as const)(
     'renders the %s frame around the same page slot',
     (frameStyle) => {
       const markup = renderToStaticMarkup(
@@ -69,4 +69,25 @@ describe('CompositionCanvas', () => {
       expect(markup).toContain('id="page-image"');
     },
   );
+
+  it('renders an iPad-style camera without phone-only chrome', () => {
+    const markup = renderToStaticMarkup(
+      createElement(CompositionCanvas, {
+        settings: {
+          ...DEFAULT_SETTINGS,
+          deviceMode: 'mobile',
+          frameStyle: 'tablet',
+          viewportWidth: 768,
+          viewportHeight: 1024,
+        },
+        pageUrl: 'https://example.com',
+        slotMode: 'live',
+      }),
+    );
+
+    expect(markup).toContain('class="composition-tablet-frame');
+    expect(markup).toContain('class="composition-tablet-camera"');
+    expect(markup).not.toContain('composition-phone-island');
+    expect(markup).not.toContain('composition-phone-home');
+  });
 });

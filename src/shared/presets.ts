@@ -31,6 +31,7 @@ export const VIEWPORT_PRESETS: readonly ViewportPreset[] = [
     id: 'desktop-full-hd',
     name: 'Full HD',
     deviceMode: 'desktop',
+    frameStyle: 'browser',
     width: 1920,
     height: 1080,
   },
@@ -38,6 +39,7 @@ export const VIEWPORT_PRESETS: readonly ViewportPreset[] = [
     id: 'desktop-default',
     name: 'Desktop',
     deviceMode: 'desktop',
+    frameStyle: 'browser',
     width: 1440,
     height: 900,
   },
@@ -45,6 +47,7 @@ export const VIEWPORT_PRESETS: readonly ViewportPreset[] = [
     id: 'desktop-laptop',
     name: 'Laptop',
     deviceMode: 'desktop',
+    frameStyle: 'browser',
     width: 1366,
     height: 768,
   },
@@ -52,6 +55,7 @@ export const VIEWPORT_PRESETS: readonly ViewportPreset[] = [
     id: 'desktop-compact',
     name: 'Compact',
     deviceMode: 'desktop',
+    frameStyle: 'browser',
     width: 1280,
     height: 800,
   },
@@ -59,6 +63,7 @@ export const VIEWPORT_PRESETS: readonly ViewportPreset[] = [
     id: 'desktop-hd',
     name: 'HD',
     deviceMode: 'desktop',
+    frameStyle: 'browser',
     width: 1280,
     height: 720,
   },
@@ -66,6 +71,7 @@ export const VIEWPORT_PRESETS: readonly ViewportPreset[] = [
     id: 'mobile-large',
     name: 'Large',
     deviceMode: 'mobile',
+    frameStyle: 'phone',
     width: 430,
     height: 932,
   },
@@ -73,13 +79,15 @@ export const VIEWPORT_PRESETS: readonly ViewportPreset[] = [
     id: 'mobile-android',
     name: 'Android',
     deviceMode: 'mobile',
+    frameStyle: 'phone',
     width: 412,
     height: 915,
   },
   {
     id: 'mobile-default',
-    name: 'Mobile',
+    name: 'Phone',
     deviceMode: 'mobile',
+    frameStyle: 'phone',
     width: 390,
     height: 844,
   },
@@ -87,6 +95,7 @@ export const VIEWPORT_PRESETS: readonly ViewportPreset[] = [
     id: 'mobile-compact',
     name: 'Compact',
     deviceMode: 'mobile',
+    frameStyle: 'phone',
     width: 375,
     height: 812,
   },
@@ -94,8 +103,25 @@ export const VIEWPORT_PRESETS: readonly ViewportPreset[] = [
     id: 'mobile-small',
     name: 'Small',
     deviceMode: 'mobile',
+    frameStyle: 'phone',
     width: 360,
     height: 800,
+  },
+  {
+    id: 'tablet-ipad',
+    name: 'iPad',
+    deviceMode: 'mobile',
+    frameStyle: 'tablet',
+    width: 768,
+    height: 1024,
+  },
+  {
+    id: 'tablet-ipad-pro',
+    name: 'iPad Pro 12.9″',
+    deviceMode: 'mobile',
+    frameStyle: 'tablet',
+    width: 1024,
+    height: 1366,
   },
 ];
 
@@ -175,7 +201,22 @@ export function applyViewportPreset(
   return {
     ...settings,
     deviceMode: preset.deviceMode,
+    frameStyle: preset.frameStyle,
     viewportWidth: preset.width,
     viewportHeight: preset.height,
+    showUrl: preset.frameStyle === 'browser',
+  };
+}
+
+export function applyCustomViewportMode(
+  settings: CaptureSettings,
+  deviceMode: DeviceMode,
+): CaptureSettings {
+  const frameStyle = deviceMode === 'desktop' ? 'browser' : 'phone';
+  return {
+    ...settings,
+    deviceMode,
+    frameStyle,
+    showUrl: frameStyle === 'browser',
   };
 }
