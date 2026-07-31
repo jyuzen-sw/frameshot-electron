@@ -15,6 +15,11 @@ import {
   WrenchIcon,
   XIcon,
 } from './Icons';
+import {
+  backgroundClassName,
+  gradientPresetCssProperties,
+  isGradientPresetActive,
+} from '../background';
 
 interface SettingsPanelProps {
   settings: CaptureSettings;
@@ -219,19 +224,27 @@ export function SettingsPanel({
         </section>
 
         <section className="settings-section">
-          <header><span>03</span><div><strong>背景色</strong><small>プリセットまたは2色を選んで調整</small></div></header>
+          <header><span>03</span><div><strong>背景色</strong><small>淡色プリセットまたは2色を選んで調整</small></div></header>
           <div className="subheading"><span>背景グラデーション</span><em>COLOR</em></div>
           <div className="gradient-grid">
             {GRADIENT_PRESETS.map((gradient) => {
-              const active = settings.gradientFrom === gradient.from && settings.gradientTo === gradient.to;
+              const active = isGradientPresetActive(settings, gradient);
               return (
                 <button
                   type="button"
                   key={gradient.id}
-                  className={active ? 'active' : ''}
+                  className={`gradient-swatch ${backgroundClassName(gradient.backgroundStyle)} ${active ? 'active' : ''}`}
+                  aria-label={gradient.name}
+                  aria-pressed={active}
                   title={gradient.name}
-                  style={{ background: `linear-gradient(${gradient.angle}deg, ${gradient.from}, ${gradient.to})` }}
-                  onClick={() => onSettingsChange((current) => ({ ...current, gradientFrom: gradient.from, gradientTo: gradient.to, gradientAngle: gradient.angle }))}
+                  style={gradientPresetCssProperties(gradient)}
+                  onClick={() => onSettingsChange((current) => ({
+                    ...current,
+                    gradientFrom: gradient.from,
+                    gradientTo: gradient.to,
+                    gradientAngle: gradient.angle,
+                    backgroundStyle: gradient.backgroundStyle,
+                  }))}
                 >{active && <CheckIcon />}</button>
               );
             })}
@@ -242,8 +255,9 @@ export function SettingsPanel({
           </div>
           <RangeField label="グラデーション角度" value={settings.gradientAngle} min={0} max={360} suffix="°" onChange={(value) => patch('gradientAngle', value)} />
           <div className="background-style-row">
-            <button type="button" className={settings.backgroundStyle === 'soft' ? 'active' : ''} onClick={() => patch('backgroundStyle', 'soft')}><SparklesIcon />Soft glow</button>
-            <button type="button" className={settings.backgroundStyle === 'clean' ? 'active' : ''} onClick={() => patch('backgroundStyle', 'clean')}>Clean</button>
+            <button type="button" aria-pressed={settings.backgroundStyle === 'soft'} className={settings.backgroundStyle === 'soft' ? 'active' : ''} onClick={() => patch('backgroundStyle', 'soft')}><SparklesIcon />Soft glow</button>
+            <button type="button" aria-pressed={settings.backgroundStyle === 'fluid'} className={settings.backgroundStyle === 'fluid' ? 'active' : ''} onClick={() => patch('backgroundStyle', 'fluid')}><SparklesIcon />Fluid ink</button>
+            <button type="button" aria-pressed={settings.backgroundStyle === 'clean'} className={settings.backgroundStyle === 'clean' ? 'active' : ''} onClick={() => patch('backgroundStyle', 'clean')}>Clean</button>
           </div>
         </section>
 

@@ -10,6 +10,7 @@ import {
 import {
   calculateCompositionLayout,
   calculatePreviewCanvasSize,
+  roundRectangleEdges,
 } from '@shared/layout';
 import type {
   CaptureSettings,
@@ -21,6 +22,7 @@ interface LiveCanvasProps {
   settings: CaptureSettings;
   pageUrl: string;
   pageLoading: boolean;
+  targetVisible: boolean;
   onTargetLayout: (layout: TargetViewLayout) => void;
 }
 
@@ -42,6 +44,7 @@ export function LiveCanvas({
   settings,
   pageUrl,
   pageLoading,
+  targetVisible,
   onTargetLayout,
 }: LiveCanvasProps): React.JSX.Element {
   const containerRef = useRef<HTMLElement>(null);
@@ -90,6 +93,7 @@ export function LiveCanvas({
     } as const;
     if (
       !pageUrl ||
+      !targetVisible ||
       document.visibilityState === 'hidden' ||
       !targetRef.current
     ) {
@@ -106,11 +110,9 @@ export function LiveCanvas({
     }
 
     const rect = targetRef.current.getBoundingClientRect();
+    const bounds = roundRectangleEdges(rect);
     const next: TargetViewLayout = {
-      x: Math.round(rect.left),
-      y: Math.round(rect.top),
-      width: Math.max(1, Math.round(rect.width)),
-      height: Math.max(1, Math.round(rect.height)),
+      ...bounds,
       borderRadius: Math.max(
         0,
         Math.round(layout.screen.radius * preview.scale),
@@ -131,6 +133,7 @@ export function LiveCanvas({
     settings.deviceMode,
     settings.viewportHeight,
     settings.viewportWidth,
+    targetVisible,
   ]);
 
   useLayoutEffect(() => {
@@ -166,6 +169,7 @@ export function LiveCanvas({
           settings={settings}
           pageUrl={pageUrl}
           pageLoading={pageLoading}
+          pageSuspended={!targetVisible}
           slotMode="live"
           canvasRef={canvasRef}
           targetRef={targetRef}

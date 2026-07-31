@@ -12,8 +12,8 @@ export const DEFAULT_SETTINGS: CaptureSettings = {
   viewportHeight: 900,
   deviceMode: 'desktop',
   frameStyle: 'browser',
-  margin: 32,
-  cornerRadius: 28,
+  margin: 8,
+  cornerRadius: 8,
   shadow: 62,
   gradientFrom: '#e3f2e8',
   gradientTo: '#ebf5ed',
@@ -132,6 +132,7 @@ export const GRADIENT_PRESETS: GradientPreset[] = [
     from: '#e3f2e8',
     to: '#ebf5ed',
     angle: 135,
+    backgroundStyle: 'soft',
   },
   {
     id: 'lavender-mint',
@@ -139,6 +140,7 @@ export const GRADIENT_PRESETS: GradientPreset[] = [
     from: '#e1e7f9',
     to: '#ddf7f8',
     angle: 135,
+    backgroundStyle: 'soft',
   },
   {
     id: 'blush-cream',
@@ -146,6 +148,7 @@ export const GRADIENT_PRESETS: GradientPreset[] = [
     from: '#f8e3ee',
     to: '#f9f3dc',
     angle: 145,
+    backgroundStyle: 'soft',
   },
   {
     id: 'sky-lilac',
@@ -153,6 +156,7 @@ export const GRADIENT_PRESETS: GradientPreset[] = [
     from: '#d2e9f9',
     to: '#e7d7f9',
     angle: 125,
+    backgroundStyle: 'soft',
   },
   {
     id: 'warm-paper',
@@ -160,6 +164,7 @@ export const GRADIENT_PRESETS: GradientPreset[] = [
     from: '#f9ecdc',
     to: '#f8f5d8',
     angle: 150,
+    backgroundStyle: 'soft',
   },
   {
     id: 'quiet-gray',
@@ -167,11 +172,55 @@ export const GRADIENT_PRESETS: GradientPreset[] = [
     from: '#e4ebf1',
     to: '#ebf0f5',
     angle: 135,
+    backgroundStyle: 'soft',
+  },
+  {
+    id: 'sea-glass-flow',
+    name: 'Sea Glass Flow',
+    from: '#d9f2ec',
+    to: '#dce7fb',
+    angle: 128,
+    backgroundStyle: 'fluid',
+  },
+  {
+    id: 'orchid-tide',
+    name: 'Orchid Tide',
+    from: '#eadcf7',
+    to: '#d9edf5',
+    angle: 118,
+    backgroundStyle: 'fluid',
+  },
+  {
+    id: 'rosewater-ink',
+    name: 'Rosewater Ink',
+    from: '#f6dde8',
+    to: '#f5e8d7',
+    angle: 148,
+    backgroundStyle: 'fluid',
+  },
+  {
+    id: 'apricot-lilac',
+    name: 'Apricot Lilac',
+    from: '#f7e0cf',
+    to: '#e6ddf6',
+    angle: 155,
+    backgroundStyle: 'fluid',
   },
 ];
 
 export function cloneSettings(settings: CaptureSettings): CaptureSettings {
   return { ...settings };
+}
+
+export function migrateV2Settings(
+  settings: CaptureSettings,
+): CaptureSettings {
+  return {
+    ...settings,
+    margin: settings.margin === 32 ? 8 : settings.margin,
+    cornerRadius:
+      settings.cornerRadius === 28 ? 8 : settings.cornerRadius,
+  };
 }
 
 export function viewportPresetsFor(

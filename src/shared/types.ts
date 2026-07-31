@@ -1,6 +1,6 @@
 export type FrameStyle = 'browser' | 'phone' | 'tablet' | 'none';
 export type DeviceMode = 'desktop' | 'mobile';
-export type BackgroundStyle = 'soft' | 'clean';
+export type BackgroundStyle = 'soft' | 'clean' | 'fluid';
 export type CaptureScale = 1 | 2;
 export type ExportDestination = 'clipboard' | 'file';
 export type AppShortcut = 'save' | 'focus-url' | 'reload-target';
@@ -47,6 +47,7 @@ export interface GradientPreset {
   from: string;
   to: string;
   angle: number;
+  backgroundStyle: BackgroundStyle;
 }
 
 export interface TargetViewLayout {

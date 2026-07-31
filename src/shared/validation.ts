@@ -51,7 +51,7 @@ function frameStyle(value: unknown): FrameStyle {
 }
 
 function backgroundStyle(value: unknown): BackgroundStyle {
-  if (value !== 'soft' && value !== 'clean') {
+  if (value !== 'soft' && value !== 'clean' && value !== 'fluid') {
     throw new Error('背景スタイルが不正です。');
   }
   return value;

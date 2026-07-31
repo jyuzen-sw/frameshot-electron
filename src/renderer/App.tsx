@@ -9,6 +9,7 @@ import {
   applyCustomViewportMode,
   applyViewportPreset,
   cloneSettings,
+  migrateV2Settings,
 } from '@shared/presets';
 import type {
   AppShortcut,
@@ -32,8 +33,8 @@ import {
 } from './components/Icons';
 import { usePersistentState } from './hooks/usePersistentState';
 
-const SETTINGS_STORAGE_KEY = 'frameshot:settings:v2';
-const SETTINGS_PANEL_STORAGE_KEY = 'frameshot:settings-panel-open';
+const SETTINGS_STORAGE_KEY = 'frameshot:settings:v3';
+const LEGACY_SETTINGS_STORAGE_KEY = 'frameshot:settings:v2';
 
 const EMPTY_NAVIGATION: NavigationState = {
   url: '',
@@ -53,12 +54,23 @@ type Notice = {
   message: string;
 } | null;
 
-function restoreSettings(): CaptureSettings {
+function readStoredSettings(key: string): CaptureSettings | null {
+  const raw = window.localStorage.getItem(key);
+  return raw ? validateCaptureSettings(JSON.parse(raw)) : null;
+}
+
+export function restoreSettings(): CaptureSettings {
   try {
-    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (raw) return validateCaptureSettings(JSON.parse(raw));
+    const current = readStoredSettings(SETTINGS_STORAGE_KEY);
+    if (current) return current;
   } catch (error) {
-    console.warn('Could not restore settings:', error);
+    console.warn('Could not restore current settings:', error);
+  }
+  try {
+    const legacy = readStoredSettings(LEGACY_SETTINGS_STORAGE_KEY);
+    if (legacy) return migrateV2Settings(legacy);
+  } catch (error) {
+    console.warn('Could not migrate legacy settings:', error);
   }
   return cloneSettings(DEFAULT_SETTINGS);
 }
@@ -69,6 +81,8 @@ function errorMessage(error: unknown): string {
 
 export function App(): React.JSX.Element {
   const urlInputRef = useRef<HTMLInputElement>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const settingsPanelRef = useRef<HTMLDivElement>(null);
   const [settings, setSettings] = useState<CaptureSettings>(restoreSettings);
   const [urlInput, setUrlInput] = usePersistentState(
     'frameshot:last-url',
@@ -80,11 +94,15 @@ export function App(): React.JSX.Element {
     useState<UserPreferences>(EMPTY_PREFERENCES);
   const [busy, setBusy] = useState<BusyAction>(null);
   const [notice, setNotice] = useState<Notice>(null);
-  const [settingsPanelOpen, setSettingsPanelOpen] = usePersistentState(
-    SETTINGS_PANEL_STORAGE_KEY,
-    false,
-  );
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const [focusViewportRequest, setFocusViewportRequest] = useState(0);
+
+  const closeSettingsPanel = useCallback((restoreFocus = false) => {
+    setSettingsPanelOpen(false);
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => settingsButtonRef.current?.focus());
+    }
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -96,11 +114,26 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     if (!settingsPanelOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSettingsPanelOpen(false);
+      if (event.key === 'Escape') closeSettingsPanel(true);
+    };
+    const closeOnPointer = (event: PointerEvent) => {
+      if (!(event.target instanceof Node)) return;
+      if (settingsPanelRef.current?.contains(event.target)) return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest('[data-settings-trigger="true"]')
+      ) {
+        return;
+      }
+      setSettingsPanelOpen(false);
     };
     window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [setSettingsPanelOpen, settingsPanelOpen]);
+    document.addEventListener('pointerdown', closeOnPointer);
+    return () => {
+      window.removeEventListener('keydown', closeOnEscape);
+      document.removeEventListener('pointerdown', closeOnPointer);
+    };
+  }, [closeSettingsPanel, settingsPanelOpen]);
 
   useEffect(() => {
     const removeNavigationListener = window.frameShot.onNavigationState(
@@ -332,6 +365,7 @@ export function App(): React.JSX.Element {
       <Toolbar
         url={urlInput}
         urlInputRef={urlInputRef}
+        settingsButtonRef={settingsButtonRef}
         navigation={navigation}
         settings={settings}
         busy={Boolean(busy)}
@@ -376,11 +410,13 @@ export function App(): React.JSX.Element {
             settings={settings}
             pageUrl={navigation.url}
             pageLoading={navigation.isLoading}
+            targetVisible={!settingsPanelOpen}
             onTargetLayout={window.frameShot.setTargetLayout}
           />
         </div>
 
         <div
+          ref={settingsPanelRef}
           className="settings-panel-slot"
           aria-hidden={!settingsPanelOpen}
           inert={!settingsPanelOpen}
@@ -398,7 +434,7 @@ export function App(): React.JSX.Element {
             onOpenDevTools={() =>
               void window.frameShot.openTargetDevTools()
             }
-            onClose={() => setSettingsPanelOpen(false)}
+            onClose={() => closeSettingsPanel(true)}
           />
         </div>
       </main>
