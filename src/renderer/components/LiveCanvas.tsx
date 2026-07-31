@@ -16,13 +16,16 @@ import type {
   CaptureSettings,
   TargetViewLayout,
 } from '@shared/types';
-import { CompositionCanvas } from './CompositionCanvas';
+import {
+  CompositionCanvas,
+  type TargetSuspensionReason,
+} from './CompositionCanvas';
 
 interface LiveCanvasProps {
   settings: CaptureSettings;
   pageUrl: string;
   pageLoading: boolean;
-  targetVisible: boolean;
+  targetSuspensionReason: TargetSuspensionReason | null;
   onTargetLayout: (layout: TargetViewLayout) => void;
 }
 
@@ -44,7 +47,7 @@ export function LiveCanvas({
   settings,
   pageUrl,
   pageLoading,
-  targetVisible,
+  targetSuspensionReason,
   onTargetLayout,
 }: LiveCanvasProps): React.JSX.Element {
   const containerRef = useRef<HTMLElement>(null);
@@ -93,7 +96,7 @@ export function LiveCanvas({
     } as const;
     if (
       !pageUrl ||
-      !targetVisible ||
+      targetSuspensionReason !== null ||
       document.visibilityState === 'hidden' ||
       !targetRef.current
     ) {
@@ -133,7 +136,7 @@ export function LiveCanvas({
     settings.deviceMode,
     settings.viewportHeight,
     settings.viewportWidth,
-    targetVisible,
+    targetSuspensionReason,
   ]);
 
   useLayoutEffect(() => {
@@ -169,20 +172,13 @@ export function LiveCanvas({
           settings={settings}
           pageUrl={pageUrl}
           pageLoading={pageLoading}
-          pageSuspended={!targetVisible}
+          pageSuspensionReason={targetSuspensionReason ?? undefined}
           slotMode="live"
           canvasRef={canvasRef}
           targetRef={targetRef}
           style={canvasStyle}
         />
       </div>
-      <footer className="canvas-caption">
-        <span>LIVE · ページを直接操作できます</span>
-        <span>
-          {settings.viewportWidth} × {settings.viewportHeight} →{' '}
-          {settings.outputWidth} × {settings.outputHeight}
-        </span>
-      </footer>
     </section>
   );
 }

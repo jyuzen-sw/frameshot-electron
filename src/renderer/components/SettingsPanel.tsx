@@ -1,4 +1,5 @@
 import { useEffect, useRef, type Ref } from 'react';
+import { calculateCompositionLayout } from '@shared/layout';
 import { GRADIENT_PRESETS } from '@shared/presets';
 import type {
   CaptureSettings,
@@ -142,6 +143,7 @@ export function SettingsPanel({
   onOpenDevTools,
 }: SettingsPanelProps): React.JSX.Element {
   const viewportWidthRef = useRef<HTMLInputElement>(null);
+  const plannedExport = calculateCompositionLayout(settings).artboard;
 
   useEffect(() => {
     if (focusViewportRequest === 0) return;
@@ -184,7 +186,7 @@ export function SettingsPanel({
       <div className="settings-scroll">
         <section className="settings-section">
           <header><span>01</span><div><strong>サイズ</strong><small>出力画像とWebページの表示領域</small></div></header>
-          <div className="subheading"><span>出力キャンバス</span><em>PNG</em></div>
+          <div className="subheading"><span>構図キャンバス（最大範囲）</span><em>MAX</em></div>
           <div className="two-column-fields">
             <NumberField label="幅" value={settings.outputWidth} min={320} max={7680} suffix="px" onChange={(value) => patch('outputWidth', value)} />
             <NumberField label="高さ" value={settings.outputHeight} min={320} max={7680} suffix="px" onChange={(value) => patch('outputHeight', value)} />
@@ -199,6 +201,9 @@ export function SettingsPanel({
               <button type="button" key={String(label)} onClick={() => onSettingsChange((current) => ({ ...current, outputWidth: Number(width), outputHeight: Number(height) }))}>{label}</button>
             ))}
           </div>
+          <output className="planned-export-size">
+            書き出し予定 {plannedExport.width} × {plannedExport.height}
+          </output>
 
           <div className="subheading"><span>ページ表示領域</span><em>{settings.deviceMode}</em></div>
           <div className="two-column-fields">

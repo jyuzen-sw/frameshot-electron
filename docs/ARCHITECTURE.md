@@ -8,7 +8,7 @@ FrameShotは、操作UI、対象ページ、出力処理を別々のWebContents�
 
 Reactで構築され、URL、viewportプリセット、出力設定、ライブキャンバスを担当します。ファイルシステムやElectron APIには直接アクセスせず、preloadが `contextBridge` で公開する限定的な `window.frameShot` APIだけを使用します。
 
-Desktop / Mobileのヘッダーリストは、デバイス種別、フレーム、論理ビューポートをまとめて変更します。Customを選んだ場合に設定パネルを開き、ページ表示領域の幅入力へフォーカスします。設定パネルは設定ボタンまたはCustomから開く非永続のフローティング表示で、開閉してもworkspaceのレイアウト、キャンバス、ページ表示領域の座標と寸法を変えません。Electronのネイティブアプリケーションメニューは無効化します。保存、URLフォーカス、再読み込みのショートカットは、Main Processが対象ページ側の入力も捕捉して操作UIへ中継するため、どちらにフォーカスがあっても動作します。
+Desktop / Mobileのヘッダーリストは、デバイス種別、フレーム、論理ビューポートをまとめて変更します。Customを選んだ場合に設定パネルを開き、ページ表示領域の幅入力へフォーカスします。Appは設定パネル、Desktop / Mobileメニュー、未表示を単一の排他状態として管理します。Escapeでメニューを閉じた場合だけトリガーへフォーカスを戻し、外側クリックでは現在のフォーカスを強制移動しません。フローティングUIを開閉してもworkspaceのレイアウト、キャンバス、ページ表示領域の座標と寸法を変えません。Electronのネイティブアプリケーションメニューは無効化します。保存、URLフォーカス、再読み込みのショートカットは、Main Processが対象ページ側の入力も捕捉して操作UIへ中継するため、どちらにフォーカスがあっても動作します。
 
 本番ビルドは `file://` ではなく `frameshot-app://app/` からbundle内のファイルだけを配信します。protocol handlerはhost、path、methodを検証してpath traversalを拒否し、index HTMLへ次の制約を含むCSPを付けます。
 
@@ -38,11 +38,13 @@ Rendererは `CompositionCanvas` を実際の出力寸法で構築し、CSS trans
 
 これにより、対象ページは本物のChromiumページとしてクリック、スクロール、入力できます。ブラウザバーやスマホベゼルはRenderer側の装飾です。
 
-ネイティブの `WebContentsView` はRendererのDOMより前面に描画されるため、設定パネルの表示中だけ対象ビューへ `visible: false` を送り、ライブページを一時的に隠します。DOM側の背景、フレーム、ページ表示領域とMain Processへ送る座標は変更しません。パネルを閉じると同じ `WebContentsView` を同じ座標へ再表示し、reloadや再生成を行わないため、URL、スクロール、入力、sessionの状態を維持します。
+ネイティブの `WebContentsView` はRendererのDOMより前面に描画されるため、設定パネルまたはDesktop / Mobileメニューの表示中は対象ビューへ `visible: false` を送り、ライブページを一時的に隠します。DOM側には「設定を編集中」または「表示サイズを選択中」と理由を表示します。閉じると同じ `WebContentsView` を同じ座標へ再表示し、reloadや再生成を行わないため、URL、スクロール、入力、sessionの状態を維持します。
 
 ## 共通キャンバス
 
-ライブ表示と書き出しは、同じ `CompositionCanvas` コンポーネントと `styles.css` を使います。背景、グラデーション、glow、grain、Browser / Phone / Tablet / Noneフレーム、余白、角丸、影、ページ領域のDOMは共通です。既定の最低余白は8pxで、DesktopのフレームとViewportにはそれぞれ8pxと6pxの角丸を適用します。Phone / Tablet固有の角丸は変更しません。
+ライブ表示と書き出しは、同じ `CompositionCanvas` コンポーネントと `styles.css` を使います。外側は設定した出力幅・高さを上限とする黒い最大構図キャンバス、内側は背景、glow、grain、フレーム、ページ領域を含むアートボードです。アートボードはBrowser / Phone / Tablet / Noneの装飾を含むフレーム外周から有効余白だけ広げ、最大構図キャンバスへクランプしたうえで、左右・上下の対向辺を個別に整数へ丸めます。フレーム座標はアートボード原点からの相対値に変換し、背景効果と影は `overflow: hidden` で内側に閉じ込めます。
+
+既定余白は32pxです。最大構図キャンバスの縦横比に合わせて余った黒い領域はライブプレビューで構図を確認するためだけに表示し、PNGには含めません。既定の1920 × 1080キャンバス、1440 × 900 BrowserではアートボードとPNGが1592 × 1080になります。DesktopのフレームとViewportにはそれぞれ8pxと6pxの角丸を適用し、Phone / Tablet固有の角丸は変更しません。
 
 背景は既存6種のlinear gradientに加え、Sea Glass Flow、Orchid Tide、Rosewater Ink、Apricot Lilacの4種を提供します。追加したFluid Gradient / Alcohol Ink風の背景は、淡いradial、conic、linear gradientをCSSで重ねて描画し、bitmap素材や外部リソースには依存しません。presetは色、角度、背景styleをまとめて適用し、ライブ表示とPNG書き出しで同じbackground descriptorを使います。
 
@@ -50,7 +52,7 @@ Rendererは `CompositionCanvas` を実際の出力寸法で構築し、CSS trans
 
 ## Renderer設定の永続化
 
-キャンバス設定は `localStorage` の `frameshot:settings:v3` へ保存します。v2データから読み込む場合、旧既定値と一致する `margin: 32` と `cornerRadius: 28` だけを新しい既定値8へ移行し、それ以外の利用者設定は保持します。旧v2データは削除しないため、旧版へ戻した場合も従来の設定を読み込めます。
+キャンバス設定は `localStorage` の `frameshot:settings:v4` へ保存します。v4を最優先し、v3データでは旧既定値と一致する `margin: 8` だけを32へ移行します。v2データではmarginを保持し、旧既定値と一致する `cornerRadius: 28` だけを8へ移行します。v2 / v3データは削除しないため、旧版へ戻した場合も従来の設定を読み込めます。
 
 設定パネルの開閉状態は保存対象に含めず、Renderer起動時は常に閉じた状態にします。
 
@@ -74,13 +76,13 @@ Rendererは `CompositionCanvas` を実際の出力寸法で構築し、CSS trans
 4. 必要に応じてスクロールバー、キャレット、アニメーションを一時的に抑制する
 5. `capturePage()` で最新のページ画像を取得する
 6. UUID tokenを発行し、ページPNGを `frameshot-export:` resource storeへ登録する
-7. 非永続・cache無効のexport sessionを使う非表示BrowserWindowで、操作UIと同じReact bundleを `#export` モードで読み込む
+7. 非永続・cache無効のexport sessionを使う、黒背景・最大構図サイズの非表示BrowserWindowで、操作UIと同じReact bundleを `#export` モードで読み込む
 8. `CompositionCanvas` のページ領域だけを一度取得可能なページPNGへ差し替える
-9. Webフォントとページ画像の描画完了後に `capturePage()` で完成画像を取得する
-10. OSの表示倍率に差があれば、最終画像だけを正確な出力寸法へ正規化する
+9. Webフォントとページ画像の描画完了後に、共有レイアウトのアートボード矩形を `capturePage()` へ渡して完成画像を取得する
+10. OSの表示倍率に差があれば、最終画像だけをアートボードの実寸へ正規化する
 11. 成功・失敗にかかわらずtoken、ページPNG、非表示ウィンドウを破棄する
 
-ページ画像には `no-store`、`nosniff`、`no-referrer`を適用します。Renderer bundleには厳格なCSPを適用し、ページPNGをOSの一時ファイルへ書き込みません。完成PNGは明示的な保存ダイアログまたはクリップボード操作だけでアプリ外へ出ます。
+ページ画像には `no-store`、`nosniff`、`no-referrer`を適用します。Renderer bundleには厳格なCSPを適用し、ページPNGをOSの一時ファイルへ書き込みません。完成PNGは明示的な保存ダイアログまたはクリップボード操作だけでアプリ外へ出ます。保存ファイル名、完了・キャンセル結果、通知には最大構図サイズではなくアートボードの実寸を使用します。
 
 書き出しは1件ずつ直列化します。出力画像と、倍率適用後のページ画像には、それぞれ8,294,400画素の上限を設けています。
 

@@ -50,6 +50,8 @@ describe('renderer selection accessibility', () => {
     expect(buttonMarkup(markup, 'None')).toContain(
       'aria-pressed="false"',
     );
+    expect(markup).toContain('構図キャンバス（最大範囲）');
+    expect(markup).toContain('書き出し予定 1654 × 1080');
   });
 
   it('uses a single labelled radio group for viewport choices', () => {

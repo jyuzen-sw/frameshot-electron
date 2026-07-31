@@ -54,6 +54,10 @@ interface PendingCdpRequest {
 
 const CDP_COMMAND_TIMEOUT_MS = 15_000;
 const HEADLESS_E2E = process.env.FRAMESHOT_E2E_HEADED !== '1';
+const KEYBOARD_INPUT = {
+  ArrowDown: { code: 'ArrowDown', windowsVirtualKeyCode: 40 },
+  Enter: { code: 'Enter', text: '\r', windowsVirtualKeyCode: 13 },
+} as const;
 
 function isWslHost(): boolean {
   return (
@@ -160,6 +164,25 @@ class CdpPage {
       );
     }
     return response.result?.result?.value as T;
+  }
+
+  public async pressKey(key: keyof typeof KEYBOARD_INPUT): Promise<void> {
+    const input = KEYBOARD_INPUT[key];
+    const text = 'text' in input ? input.text : undefined;
+    await this.send('Input.dispatchKeyEvent', {
+      type: text ? 'keyDown' : 'rawKeyDown',
+      key,
+      code: input.code,
+      text,
+      unmodifiedText: text,
+      windowsVirtualKeyCode: input.windowsVirtualKeyCode,
+    });
+    await this.send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key,
+      code: input.code,
+      windowsVirtualKeyCode: input.windowsVirtualKeyCode,
+    });
   }
 
   public close(): void {
@@ -435,24 +458,48 @@ function compositionViewportSamplePoints(
   const markerInset = 32 * layout.scale;
   return [
     {
-      x: Math.round(layout.screen.x + markerInset),
-      y: Math.round(layout.screen.y + markerInset),
+      x: Math.round(layout.screen.x + markerInset - layout.artboard.x),
+      y: Math.round(layout.screen.y + markerInset - layout.artboard.y),
     },
     {
-      x: Math.round(layout.screen.x + layout.screen.width - markerInset),
-      y: Math.round(layout.screen.y + markerInset),
+      x: Math.round(
+        layout.screen.x +
+          layout.screen.width -
+          markerInset -
+          layout.artboard.x,
+      ),
+      y: Math.round(layout.screen.y + markerInset - layout.artboard.y),
     },
     {
-      x: Math.round(layout.screen.x + markerInset),
-      y: Math.round(layout.screen.y + layout.screen.height - markerInset),
+      x: Math.round(layout.screen.x + markerInset - layout.artboard.x),
+      y: Math.round(
+        layout.screen.y +
+          layout.screen.height -
+          markerInset -
+          layout.artboard.y,
+      ),
     },
     {
-      x: Math.round(layout.screen.x + layout.screen.width - markerInset),
-      y: Math.round(layout.screen.y + layout.screen.height - markerInset),
+      x: Math.round(
+        layout.screen.x +
+          layout.screen.width -
+          markerInset -
+          layout.artboard.x,
+      ),
+      y: Math.round(
+        layout.screen.y +
+          layout.screen.height -
+          markerInset -
+          layout.artboard.y,
+      ),
     },
     {
-      x: Math.round(layout.screen.x + layout.screen.width / 2),
-      y: Math.round(layout.screen.y + layout.screen.height / 2),
+      x: Math.round(
+        layout.screen.x + layout.screen.width / 2 - layout.artboard.x,
+      ),
+      y: Math.round(
+        layout.screen.y + layout.screen.height / 2 - layout.artboard.y,
+      ),
     },
   ];
 }
@@ -460,11 +507,11 @@ function compositionViewportSamplePoints(
 function compositionViewportCornerSamplePoints(
   settings: CaptureSettings,
 ): Array<{ x: number; y: number }> {
-  const { screen } = calculateCompositionLayout(settings);
-  const left = Math.ceil(screen.x);
-  const top = Math.ceil(screen.y);
-  const right = Math.ceil(screen.x + screen.width) - 1;
-  const bottom = Math.ceil(screen.y + screen.height) - 1;
+  const { artboard, screen } = calculateCompositionLayout(settings);
+  const left = Math.ceil(screen.x - artboard.x);
+  const top = Math.ceil(screen.y - artboard.y);
+  const right = Math.ceil(screen.x + screen.width - artboard.x) - 1;
+  const bottom = Math.ceil(screen.y + screen.height - artboard.y) - 1;
   const inset = 4;
   return [
     { x: left, y: top },
@@ -499,9 +546,25 @@ function compositionTabletBezelSamplePoint(
 ): { x: number; y: number } {
   const layout = calculateCompositionLayout(settings);
   return {
-    x: Math.round(layout.frame.x + layout.frame.width * 0.25),
-    y: Math.round(layout.frame.y + layout.tabletBezel.top / 2),
+    x: Math.round(
+      layout.frame.x + layout.frame.width * 0.25 - layout.artboard.x,
+    ),
+    y: Math.round(
+      layout.frame.y + layout.tabletBezel.top / 2 - layout.artboard.y,
+    ),
   };
+}
+
+function artboardEdgeSamplePoints(
+  settings: CaptureSettings,
+): Array<{ x: number; y: number }> {
+  const { width, height } = calculateCompositionLayout(settings).artboard;
+  return [
+    { x: 0, y: Math.floor(height / 2) },
+    { x: width - 1, y: Math.floor(height / 2) },
+    { x: Math.floor(width / 2), y: 0 },
+    { x: Math.floor(width / 2), y: height - 1 },
+  ];
 }
 
 async function waitForDevToolsEndpoint(
@@ -989,7 +1052,9 @@ interface UiRectangle {
 }
 
 interface StudioGeometry {
+  artboard: UiRectangle;
   canvas: UiRectangle;
+  frame: UiRectangle;
   pageSlot: UiRectangle;
   panel: UiRectangle;
   preview: UiRectangle;
@@ -1009,7 +1074,11 @@ async function readStudioGeometry(cdp: CdpPage): Promise<StudioGeometry> {
         return { x, y, width, height };
       };
       return {
+        artboard: rectangle('.composition-artboard'),
         canvas: rectangle('.composition-canvas'),
+        frame: rectangle(
+          '.composition-browser-frame, .composition-phone-frame, .composition-tablet-frame, .composition-plain-frame',
+        ),
         pageSlot: rectangle('.composition-page-slot'),
         panel: rectangle('.settings-panel-slot'),
         preview: rectangle('.composition-preview-frame'),
@@ -1018,6 +1087,74 @@ async function readStudioGeometry(cdp: CdpPage): Promise<StudioGeometry> {
       };
     })()
   `);
+}
+
+async function expectPreviewArtboard(
+  cdp: CdpPage,
+  expectedFrameStyle: CaptureSettings['frameStyle'],
+): Promise<void> {
+  const settings = await cdp.evaluate<CaptureSettings>(`
+    JSON.parse(localStorage.getItem('frameshot:settings:v4'))
+  `);
+  const geometry = await readStudioGeometry(cdp);
+  const surface = await cdp.evaluate<{
+    artboardBackground: string;
+    canvasBackground: string;
+    frameStyle: string;
+  }>(`
+    (() => {
+      const canvas = document.querySelector('.composition-canvas');
+      const artboard = document.querySelector('.composition-artboard');
+      if (!(canvas instanceof HTMLElement) || !(artboard instanceof HTMLElement)) {
+        throw new Error('The composition surfaces were not found.');
+      }
+      return {
+        artboardBackground: getComputedStyle(artboard).backgroundImage,
+        canvasBackground: getComputedStyle(canvas).backgroundColor,
+        frameStyle: canvas.dataset.frameStyle ?? '',
+      };
+    })()
+  `);
+  const layout = calculateCompositionLayout(settings);
+  const previewScale = geometry.canvas.width / settings.outputWidth;
+
+  expect(surface).toMatchObject({
+    canvasBackground: 'rgb(0, 0, 0)',
+    frameStyle: expectedFrameStyle,
+  });
+  expect(surface.artboardBackground).not.toBe('none');
+  expect(
+    Math.abs(
+      geometry.artboard.width - layout.artboard.width * previewScale,
+    ),
+  ).toBeLessThanOrEqual(2);
+  expect(
+    Math.abs(
+      geometry.artboard.height - layout.artboard.height * previewScale,
+    ),
+  ).toBeLessThanOrEqual(2);
+  expect(
+    geometry.artboard.width < geometry.canvas.width - 1 ||
+      geometry.artboard.height < geometry.canvas.height - 1,
+  ).toBe(true);
+
+  const frameGaps = [
+    geometry.frame.x - geometry.artboard.x,
+    geometry.frame.y - geometry.artboard.y,
+    geometry.artboard.x +
+      geometry.artboard.width -
+      geometry.frame.x -
+      geometry.frame.width,
+    geometry.artboard.y +
+      geometry.artboard.height -
+      geometry.frame.y -
+      geometry.frame.height,
+  ];
+  for (const gap of frameGaps) {
+    expect(
+      Math.abs(gap - settings.margin * previewScale),
+    ).toBeLessThanOrEqual(2);
+  }
 }
 
 function expectRectangleToStayFixed(
@@ -1046,10 +1183,22 @@ function expectStudioCompositionToStayFixed(
     'composition-preview-frame',
   );
   expectRectangleToStayFixed(
+    before.artboard,
+    after.artboard,
+    2,
+    'composition-artboard',
+  );
+  expectRectangleToStayFixed(
     before.canvas,
     after.canvas,
     2,
     'composition-canvas',
+  );
+  expectRectangleToStayFixed(
+    before.frame,
+    after.frame,
+    2,
+    'composition-frame',
   );
   expectRectangleToStayFixed(
     before.pageSlot,
@@ -1161,7 +1310,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     `);
     expect(initialLayout.actionDockExists).toBe(false);
     expect(initialLayout.settingsFooterExists).toBe(false);
-    expect(initialLayout.captionExists).toBe(true);
+    expect(initialLayout.captionExists).toBe(false);
     expect(initialLayout.settingsExpanded).toBe(false);
     expect(initialLayout.settingsHidden).toBe(true);
     expect(initialLayout.liveSlot).toBe(true);
@@ -1186,6 +1335,31 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     ).toBeLessThanOrEqual(2);
 
     const closedStudioGeometry = await readStudioGeometry(cdp);
+    expect(
+      await cdp.evaluate<string>(
+        `getComputedStyle(document.querySelector('.composition-canvas')).backgroundColor`,
+      ),
+    ).toBe('rgb(0, 0, 0)');
+    expect(closedStudioGeometry.artboard.width).toBeLessThan(
+      closedStudioGeometry.canvas.width,
+    );
+    const previewScale = closedStudioGeometry.canvas.width / 1920;
+    const artboardFrameGaps = [
+      closedStudioGeometry.frame.x - closedStudioGeometry.artboard.x,
+      closedStudioGeometry.frame.y - closedStudioGeometry.artboard.y,
+      closedStudioGeometry.artboard.x +
+        closedStudioGeometry.artboard.width -
+        closedStudioGeometry.frame.x -
+        closedStudioGeometry.frame.width,
+      closedStudioGeometry.artboard.y +
+        closedStudioGeometry.artboard.height -
+        closedStudioGeometry.frame.y -
+        closedStudioGeometry.frame.height,
+    ];
+    for (const gap of artboardFrameGaps) {
+      expect(Math.abs(gap - 32 * previewScale)).toBeLessThanOrEqual(1);
+    }
+    await expectPreviewArtboard(cdp, 'browser');
 
     await cdp.evaluate(`
       document.querySelector('button[aria-controls="settings-panel"]')?.click()
@@ -1385,8 +1559,186 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     expect(exportActionsReady).toBe(true);
 
     const baselineSettings = await cdp.evaluate<Record<string, unknown>>(`
-      JSON.parse(localStorage.getItem('frameshot:settings:v3'))
+      JSON.parse(localStorage.getItem('frameshot:settings:v4'))
     `);
+    await targetPage.evaluate(`
+      document.body.dataset.frameshotMenuState = 'preserved'
+    `);
+    await cdp.evaluate(`
+      document.querySelector(
+        '[data-device-mode="mobile"] .viewport-menu-trigger',
+      )?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="mobile"] [role="menu"]',
+            ) !== null
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const slot = document.querySelector('.composition-page-slot');
+              return slot instanceof HTMLElement &&
+                slot.classList.contains('is-suspended') &&
+                slot.textContent?.includes('表示サイズを選択中') === true &&
+                slot.textContent?.includes(
+                  'ライブページは一時的に非表示です',
+                ) === true;
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await expect
+      .poll(
+        async () => (await readTargetFixtureState(targetPage)).visibilityState,
+        { timeout: 5_000 },
+      )
+      .toBe('hidden');
+    await cdp.evaluate(`
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="mobile"] [role="menu"]',
+            ) === null &&
+              document.activeElement === document.querySelector(
+                '[data-device-mode="mobile"] .viewport-menu-trigger',
+              ) &&
+              !document.querySelector(
+                '.composition-page-slot',
+              )?.classList.contains('is-suspended')
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await expect
+      .poll(
+        async () => (await readTargetFixtureState(targetPage)).visibilityState,
+        { timeout: 5_000 },
+      )
+      .toBe('visible');
+    expect(
+      await targetPage.evaluate<string>(
+        `document.body.dataset.frameshotMenuState ?? ''`,
+      ),
+    ).toBe('preserved');
+
+    await cdp.evaluate(`
+      document.querySelector(
+        '[data-device-mode="mobile"] .viewport-menu-trigger',
+      )?.focus()
+    `);
+    await cdp.pressKey('ArrowDown');
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="mobile"] [role="menu"]',
+            ) !== null &&
+              document.activeElement?.getAttribute('role') ===
+                'menuitemradio'
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.pressKey('Enter');
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<Record<string, boolean>>(`
+            ({
+              menuClosed: document.querySelector(
+                '[data-device-mode="mobile"] [role="menu"]',
+              ) === null,
+              targetResumed: !document.querySelector(
+                '.composition-page-slot',
+              )?.classList.contains('is-suspended'),
+              triggerFocused:
+                document.activeElement === document.querySelector(
+                  '[data-device-mode="mobile"] .viewport-menu-trigger',
+                ),
+            })
+          `),
+        { timeout: 5_000 },
+      )
+      .toEqual({
+        menuClosed: true,
+        targetResumed: true,
+        triggerFocused: true,
+      });
+
+    await cdp.evaluate(`
+      document.querySelector(
+        '[data-device-mode="mobile"] .viewport-menu-trigger',
+      )?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="mobile"] [role="menu"]',
+            ) !== null
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '.composition-page-slot',
+            )?.textContent?.includes('表示サイズを選択中') === true
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await expect
+      .poll(
+        async () => (await readTargetFixtureState(targetPage)).visibilityState,
+        { timeout: 5_000 },
+      )
+      .toBe('hidden');
+    await cdp.evaluate(`
+      (() => {
+        const input = document.querySelector('input[aria-label="URL"]');
+        const brand = document.querySelector('.brand');
+        if (!(input instanceof HTMLInputElement) || !(brand instanceof Element)) {
+          throw new Error('The outside-dismiss probes were not found.');
+        }
+        input.focus();
+        brand.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="mobile"] [role="menu"]',
+            ) === null &&
+              document.activeElement === document.querySelector(
+                'input[aria-label="URL"]',
+              )
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+
     await cdp.evaluate(`
       document.querySelector(
         '[data-device-mode="mobile"] .viewport-menu-trigger',
@@ -1422,7 +1774,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v3'),
+                localStorage.getItem('frameshot:settings:v4'),
               );
               return settings.deviceMode === 'mobile' &&
                 settings.viewportWidth === 412 &&
@@ -1432,8 +1784,30 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         { timeout: 5_000 },
       )
       .toBe(true);
+    await expect
+      .poll(
+        async () => {
+          const state = await readTargetFixtureState(targetPage);
+          return {
+            height: state.height,
+            visibilityState: state.visibilityState,
+            width: state.width,
+          };
+        },
+        { timeout: 5_000 },
+      )
+      .toEqual({
+        height: 915,
+        visibilityState: 'visible',
+        width: 412,
+      });
+    expect(
+      await targetPage.evaluate<string>(
+        `document.body.dataset.frameshotMenuState ?? ''`,
+      ),
+    ).toBe('preserved');
     const mobileSettings = await cdp.evaluate<Record<string, unknown>>(`
-      JSON.parse(localStorage.getItem('frameshot:settings:v3'))
+      JSON.parse(localStorage.getItem('frameshot:settings:v4'))
     `);
     expect(mobileSettings).toMatchObject({
       deviceMode: 'mobile',
@@ -1456,6 +1830,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         `document.querySelector('.composition-canvas')?.getAttribute('data-frame-style') ?? ''`,
       ),
     ).toBe('phone');
+    await expectPreviewArtboard(cdp, 'phone');
 
     await cdp.evaluate(`
       document.querySelector(
@@ -1495,7 +1870,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v3'),
+                localStorage.getItem('frameshot:settings:v4'),
               );
               return settings.deviceMode === 'mobile' &&
                 settings.frameStyle === 'tablet' &&
@@ -1512,7 +1887,24 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         { timeout: 5_000 },
       )
       .toBe(true);
+    await expectPreviewArtboard(cdp, 'tablet');
 
+    await cdp.evaluate(`
+      document.querySelector(
+        '[data-device-mode="mobile"] .viewport-menu-trigger',
+      )?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="mobile"] [role="menu"]',
+            ) !== null
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
     await cdp.evaluate(`
       document.querySelector('button[aria-controls="settings-panel"]')?.click()
     `);
@@ -1522,6 +1914,52 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(
             `document.querySelector('button[aria-controls="settings-panel"]')?.getAttribute('aria-expanded') === 'true'`,
           ),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    expect(
+      await cdp.evaluate<boolean>(`
+        document.querySelector('[role="menu"]') === null
+      `),
+    ).toBe(true);
+
+    await cdp.evaluate(`
+      document.querySelector(
+        '[data-device-mode="mobile"] .viewport-menu-trigger',
+      )?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="mobile"] [role="menu"]',
+            ) !== null &&
+              document.querySelector(
+                'button[aria-controls="settings-panel"]',
+              )?.getAttribute('aria-expanded') === 'false' &&
+              document.querySelector(
+                '.composition-page-slot',
+              )?.textContent?.includes('表示サイズを選択中') === true
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      document.querySelector('button[aria-controls="settings-panel"]')?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector('[role="menu"]') === null &&
+              document.querySelector(
+                'button[aria-controls="settings-panel"]',
+              )?.getAttribute('aria-expanded') === 'true' &&
+              document.querySelector(
+                '.composition-page-slot',
+              )?.textContent?.includes('設定を編集中') === true
+          `),
         { timeout: 5_000 },
       )
       .toBe(true);
@@ -1542,7 +1980,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v3'),
+                localStorage.getItem('frameshot:settings:v4'),
               );
               return settings.frameStyle === 'browser' &&
                 settings.viewportWidth === 1024 &&
@@ -1618,7 +2056,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v3'),
+                localStorage.getItem('frameshot:settings:v4'),
               );
               return settings.viewportWidth === 414 &&
                 settings.frameStyle === 'phone' &&
@@ -1647,6 +2085,23 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         { timeout: 5_000 },
       )
       .toBe(true);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '.composition-page-slot',
+            )?.textContent?.includes('表示サイズを選択中') === true
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await expect
+      .poll(
+        async () => (await readTargetFixtureState(targetPage)).visibilityState,
+        { timeout: 5_000 },
+      )
+      .toBe('hidden');
     await cdp.evaluate(`
       (() => {
         const preset = Array.from(
@@ -1666,7 +2121,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v3'),
+                localStorage.getItem('frameshot:settings:v4'),
               );
               return settings.deviceMode === 'desktop' &&
                 settings.viewportWidth === 1440 &&
@@ -1678,9 +2133,20 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         { timeout: 5_000 },
       )
       .toBe(true);
+    await expect
+      .poll(
+        async () => (await readTargetFixtureState(targetPage)).visibilityState,
+        { timeout: 5_000 },
+      )
+      .toBe('visible');
+    expect(
+      await targetPage.evaluate<string>(
+        `document.body.dataset.frameshotMenuState ?? ''`,
+      ),
+    ).toBe('preserved');
 
     const desktopSettings = await cdp.evaluate<CaptureSettings>(`
-      JSON.parse(localStorage.getItem('frameshot:settings:v3'))
+      JSON.parse(localStorage.getItem('frameshot:settings:v4'))
     `);
     expect(desktopSettings).toMatchObject({
       deviceMode: 'desktop',
@@ -1695,7 +2161,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       const clipboardError = await cdp.evaluate<string>(`
         (async () => {
           const settings = JSON.parse(
-            localStorage.getItem('frameshot:settings:v3'),
+            localStorage.getItem('frameshot:settings:v4'),
           );
           try {
             await window.frameShot.exportImage(settings, 'clipboard');
@@ -1710,6 +2176,9 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       logE2e('WSL clipboard copy was rejected with the supported fallback.');
     }
 
+    const desktopArtboard = calculateCompositionLayout(
+      desktopSettings,
+    ).artboard;
     {
       const expectedDesktopPixels = [
         [255, 0, 85, 255],
@@ -1723,7 +2192,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         const directExport = await cdp.evaluate<ExportResult>(`
           (async () => {
             const settings = JSON.parse(
-              localStorage.getItem('frameshot:settings:v3'),
+              localStorage.getItem('frameshot:settings:v4'),
             );
             return window.frameShot.exportImage(
               {
@@ -1738,8 +2207,8 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         expect(directExport).toMatchObject({
           destination: exportDestination,
           completed: true,
-          width: 1920,
-          height: 1080,
+          width: desktopArtboard.width,
+          height: desktopArtboard.height,
         });
         expect(directExport.exportedAt).toEqual(expect.any(String));
 
@@ -1748,7 +2217,10 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           `capture-${captureScale}x`,
           directExport,
         );
-        expect(probe).toMatchObject({ width: 1920, height: 1080 });
+        expect(probe).toMatchObject({
+          width: desktopArtboard.width,
+          height: desktopArtboard.height,
+        });
         const markerPixels = await samplePngPixels(
           cdp,
           probe.pngPath,
@@ -1773,6 +2245,14 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
             cornerPixels[index * 2 + 1] ?? [],
             expectedPixel,
           );
+        }
+        const edgePixels = await samplePngPixels(
+          cdp,
+          probe.pngPath,
+          artboardEdgeSamplePoints(desktopSettings),
+        );
+        for (const edgePixel of edgePixels) {
+          expectPixelDifferent(edgePixel, [0, 0, 0, 255]);
         }
         await expect
           .poll(
@@ -1808,18 +2288,22 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           ${JSON.stringify(exportDestination)},
         )
       `);
+      const ipadArtboard = calculateCompositionLayout(ipadSettings).artboard;
       expect(ipadExport).toMatchObject({
         destination: exportDestination,
         completed: true,
-        width: 1920,
-        height: 1080,
+        width: ipadArtboard.width,
+        height: ipadArtboard.height,
       });
       const ipadProbe = await exportedPng(
         tempDirectory,
         'capture-ipad-tablet',
         ipadExport,
       );
-      expect(ipadProbe).toMatchObject({ width: 1920, height: 1080 });
+      expect(ipadProbe).toMatchObject({
+        width: ipadArtboard.width,
+        height: ipadArtboard.height,
+      });
       const ipadPixels = await samplePngPixels(
         cdp,
         ipadProbe.pngPath,
@@ -1842,6 +2326,14 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       expect(tabletBezelPixel).toHaveLength(4);
       expect(Math.max(...tabletBezelPixel.slice(0, 3))).toBeLessThan(90);
       expect(tabletBezelPixel[3]).toBe(255);
+      const ipadEdgePixels = await samplePngPixels(
+        cdp,
+        ipadProbe.pngPath,
+        artboardEdgeSamplePoints(ipadSettings),
+      );
+      for (const edgePixel of ipadEdgePixels) {
+        expectPixelDifferent(edgePixel, [0, 0, 0, 255]);
+      }
       await expect
         .poll(
           async () =>
@@ -1884,26 +2376,26 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         () =>
           cdp.evaluate<boolean>(`
             (() => {
-              const canvas = document.querySelector('.composition-canvas');
+              const artboard = document.querySelector('.composition-artboard');
               const glow = document.querySelector('.composition-glow');
               const preset = document.querySelector(
                 '.gradient-swatch[title="Sea Glass Flow"]',
               );
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v3'),
+                localStorage.getItem('frameshot:settings:v4'),
               );
-              return canvas instanceof HTMLElement &&
+              return artboard instanceof HTMLElement &&
                 glow instanceof HTMLElement &&
                 preset instanceof HTMLButtonElement &&
                 settings.gradientFrom === '#d9f2ec' &&
                 settings.gradientTo === '#dce7fb' &&
                 settings.gradientAngle === 128 &&
                 settings.backgroundStyle === 'fluid' &&
-                canvas.classList.contains('background-fluid') &&
+                artboard.classList.contains('background-fluid') &&
                 preset.classList.contains('background-fluid') &&
                 preset.classList.contains('active') &&
                 document.querySelectorAll('.gradient-swatch.active').length === 1 &&
-                (getComputedStyle(canvas).backgroundImage.match(
+                (getComputedStyle(artboard).backgroundImage.match(
                   /gradient\\(/g,
                 )?.length ?? 0) >= 5 &&
                 getComputedStyle(glow).opacity === '0.28';
@@ -1952,12 +2444,12 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           ? 'PNGを保存しました:'
           : isWslHost()
           ? 'WSL2/WSLg'
-          : '1920 × 1080 の画像をコピーしました。',
+          : `${desktopArtboard.width} × ${desktopArtboard.height} の画像をコピーしました。`,
       );
     if (HEADLESS_E2E) {
       expect(readPngDimensions(headlessUiExportPath)).toEqual({
-        width: 1920,
-        height: 1080,
+        width: desktopArtboard.width,
+        height: desktopArtboard.height,
       });
     }
     expect(
@@ -2095,7 +2587,7 @@ test('closes the application window without main process errors', async () => {
     await app.cdp.evaluate(`
       (() => {
         const settings = {
-          ...JSON.parse(localStorage.getItem('frameshot:settings:v3')),
+          ...JSON.parse(localStorage.getItem('frameshot:settings:v4')),
           captureScale: 2,
           pauseAnimations: true,
           waitMs: 5000,

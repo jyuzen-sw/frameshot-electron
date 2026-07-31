@@ -12,7 +12,7 @@ export const DEFAULT_SETTINGS: CaptureSettings = {
   viewportHeight: 900,
   deviceMode: 'desktop',
   frameStyle: 'browser',
-  margin: 8,
+  margin: 32,
   cornerRadius: 8,
   shadow: 62,
   gradientFrom: '#e3f2e8',
@@ -217,9 +217,17 @@ export function migrateV2Settings(
 ): CaptureSettings {
   return {
     ...settings,
-    margin: settings.margin === 32 ? 8 : settings.margin,
     cornerRadius:
       settings.cornerRadius === 28 ? 8 : settings.cornerRadius,
+  };
+}
+
+export function migrateV3Settings(
+  settings: CaptureSettings,
+): CaptureSettings {
+  return {
+    ...settings,
+    margin: settings.margin === 8 ? 32 : settings.margin,
   };
 }
 

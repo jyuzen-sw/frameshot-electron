@@ -12,10 +12,12 @@ import {
 } from 'electron';
 import type {
   CaptureSettings,
+  CompositionLayout,
   ExportDestination,
   ExportRenderPayload,
   ExportResult,
 } from '@shared/types';
+import { calculateCompositionLayout } from '@shared/layout';
 import { validateCaptureSettings } from '@shared/validation';
 import {
   EXPORT_RENDERER_HASH,
@@ -168,6 +170,7 @@ export class ExportService {
     return this.operations.run(async () => {
       this.assertNotDisposed();
       const validatedSettings = validateCaptureSettings(settings);
+      const { artboard } = calculateCompositionLayout(validatedSettings);
       if (destination !== 'clipboard' && destination !== 'file') {
         throw new Error('書き出し先が不正です。');
       }
@@ -177,18 +180,21 @@ export class ExportService {
 
       let outputPath: string | undefined;
       if (destination === 'file') {
-        outputPath = await this.chooseOutputPath(validatedSettings);
+        outputPath = await this.chooseOutputPath(validatedSettings, artboard);
         if (!outputPath) {
           return {
             destination,
             completed: false,
-            width: validatedSettings.outputWidth,
-            height: validatedSettings.outputHeight,
+            width: artboard.width,
+            height: artboard.height,
           };
         }
       }
 
-      const composite = await this.createComposite(validatedSettings);
+      const composite = await this.createComposite(
+        validatedSettings,
+        artboard,
+      );
       this.assertNotDisposed();
 
       if (destination === 'clipboard') {
@@ -206,8 +212,8 @@ export class ExportService {
       return {
         destination,
         completed: true,
-        width: validatedSettings.outputWidth,
-        height: validatedSettings.outputHeight,
+        width: artboard.width,
+        height: artboard.height,
         exportedAt: new Date().toISOString(),
         ...(outputPath ? { path: outputPath } : {}),
       };
@@ -232,13 +238,14 @@ export class ExportService {
 
   private async chooseOutputPath(
     settings: CaptureSettings,
+    artboard: CompositionLayout['artboard'],
   ): Promise<string | undefined> {
     if (this.options.resolveOutputPath) {
       return this.options.resolveOutputPath(settings);
     }
     const defaultPath = path.join(
       app.getPath('pictures'),
-      `${targetFilePart(this.options.targetBrowser.currentUrl)}-${dateStamp(new Date())}-${settings.outputWidth}x${settings.outputHeight}.png`,
+      `${targetFilePart(this.options.targetBrowser.currentUrl)}-${dateStamp(new Date())}-${artboard.width}x${artboard.height}.png`,
     );
     const result = await dialog.showSaveDialog(this.options.ownerWindow, {
       title: 'PNGを書き出す',
@@ -254,6 +261,7 @@ export class ExportService {
 
   private async createComposite(
     settings: CaptureSettings,
+    artboard: CompositionLayout['artboard'],
   ): Promise<NativeImage> {
     const pageImage =
       await this.options.targetBrowser.captureViewport(settings);
@@ -277,7 +285,7 @@ export class ExportService {
         resizable: false,
         frame: false,
         transparent: false,
-        backgroundColor: settings.gradientFrom,
+        backgroundColor: '#000000',
         paintWhenInitiallyHidden: true,
         enableLargerThanScreen: true,
         webPreferences: {
@@ -343,7 +351,7 @@ export class ExportService {
 
       const captured = await this.captureExportWindow(
         exportWindow,
-        settings,
+        artboard,
       );
       if (captured.isEmpty()) {
         throw new Error('完成画像の生成に失敗しました。');
@@ -351,12 +359,12 @@ export class ExportService {
 
       const capturedSize = captured.getSize();
       const normalized =
-        capturedSize.width === settings.outputWidth &&
-        capturedSize.height === settings.outputHeight
+        capturedSize.width === artboard.width &&
+        capturedSize.height === artboard.height
           ? captured
           : captured.resize({
-              width: settings.outputWidth,
-              height: settings.outputHeight,
+              width: artboard.width,
+              height: artboard.height,
               quality: 'best',
             });
       this.assertNotDisposed();
@@ -374,16 +382,10 @@ export class ExportService {
 
   private async captureExportWindow(
     exportWindow: BrowserWindow,
-    settings: CaptureSettings,
+    artboard: CompositionLayout['artboard'],
   ): Promise<NativeImage> {
-    const bounds = {
-      x: 0,
-      y: 0,
-      width: settings.outputWidth,
-      height: settings.outputHeight,
-    };
     return withExportTimeout(
-      exportWindow.webContents.capturePage(bounds, {
+      exportWindow.webContents.capturePage(artboard, {
         stayHidden: !this.options.prepareHeadlessCaptureSurface,
         stayAwake: true,
       }),

@@ -10,6 +10,7 @@ import {
   applyViewportPreset,
   cloneSettings,
   migrateV2Settings,
+  migrateV3Settings,
 } from '@shared/presets';
 import type {
   AppShortcut,
@@ -23,6 +24,7 @@ import type {
 import { getHostname } from '@shared/url';
 import { validateCaptureSettings } from '@shared/validation';
 import { LiveCanvas } from './components/LiveCanvas';
+import type { TargetSuspensionReason } from './components/CompositionCanvas';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Toolbar } from './components/Toolbar';
 import {
@@ -33,8 +35,9 @@ import {
 } from './components/Icons';
 import { usePersistentState } from './hooks/usePersistentState';
 
-const SETTINGS_STORAGE_KEY = 'frameshot:settings:v3';
-const LEGACY_SETTINGS_STORAGE_KEY = 'frameshot:settings:v2';
+const SETTINGS_STORAGE_KEY = 'frameshot:settings:v4';
+const V3_SETTINGS_STORAGE_KEY = 'frameshot:settings:v3';
+const V2_SETTINGS_STORAGE_KEY = 'frameshot:settings:v2';
 
 const EMPTY_NAVIGATION: NavigationState = {
   url: '',
@@ -54,6 +57,21 @@ type Notice = {
   message: string;
 } | null;
 
+export type FloatingUiState =
+  | { kind: 'settings' }
+  | { kind: 'viewport-menu'; deviceMode: DeviceMode }
+  | null;
+
+export function dismissViewportMenuState(
+  current: FloatingUiState,
+  deviceMode: DeviceMode,
+): FloatingUiState {
+  return current?.kind === 'viewport-menu' &&
+    current.deviceMode === deviceMode
+    ? null
+    : current;
+}
+
 function readStoredSettings(key: string): CaptureSettings | null {
   const raw = window.localStorage.getItem(key);
   return raw ? validateCaptureSettings(JSON.parse(raw)) : null;
@@ -67,10 +85,16 @@ export function restoreSettings(): CaptureSettings {
     console.warn('Could not restore current settings:', error);
   }
   try {
-    const legacy = readStoredSettings(LEGACY_SETTINGS_STORAGE_KEY);
-    if (legacy) return migrateV2Settings(legacy);
+    const v3 = readStoredSettings(V3_SETTINGS_STORAGE_KEY);
+    if (v3) return migrateV3Settings(v3);
   } catch (error) {
-    console.warn('Could not migrate legacy settings:', error);
+    console.warn('Could not migrate v3 settings:', error);
+  }
+  try {
+    const v2 = readStoredSettings(V2_SETTINGS_STORAGE_KEY);
+    if (v2) return migrateV2Settings(v2);
+  } catch (error) {
+    console.warn('Could not migrate v2 settings:', error);
   }
   return cloneSettings(DEFAULT_SETTINGS);
 }
@@ -94,11 +118,24 @@ export function App(): React.JSX.Element {
     useState<UserPreferences>(EMPTY_PREFERENCES);
   const [busy, setBusy] = useState<BusyAction>(null);
   const [notice, setNotice] = useState<Notice>(null);
-  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
+  const [floatingUi, setFloatingUi] = useState<FloatingUiState>(null);
   const [focusViewportRequest, setFocusViewportRequest] = useState(0);
+  const settingsPanelOpen = floatingUi?.kind === 'settings';
+  const activeViewportMenu =
+    floatingUi?.kind === 'viewport-menu'
+      ? floatingUi.deviceMode
+      : null;
+  const targetSuspensionReason: TargetSuspensionReason | null =
+    floatingUi?.kind === 'settings'
+      ? 'settings'
+      : floatingUi?.kind === 'viewport-menu'
+        ? 'viewport-menu'
+        : null;
 
   const closeSettingsPanel = useCallback((restoreFocus = false) => {
-    setSettingsPanelOpen(false);
+    setFloatingUi((current) =>
+      current?.kind === 'settings' ? null : current,
+    );
     if (restoreFocus) {
       window.requestAnimationFrame(() => settingsButtonRef.current?.focus());
     }
@@ -125,7 +162,7 @@ export function App(): React.JSX.Element {
       ) {
         return;
       }
-      setSettingsPanelOpen(false);
+      closeSettingsPanel();
     };
     window.addEventListener('keydown', closeOnEscape);
     document.addEventListener('pointerdown', closeOnPointer);
@@ -208,7 +245,7 @@ export function App(): React.JSX.Element {
           message:
             destination === 'clipboard'
               ? `${result.width} × ${result.height} の画像をコピーしました。`
-              : `PNGを保存しました: ${result.path ?? ''}`,
+              : `${result.width} × ${result.height} のPNGを保存しました: ${result.path ?? ''}`,
         });
       } catch (error) {
         showError(error);
@@ -235,11 +272,21 @@ export function App(): React.JSX.Element {
       setSettings((current) =>
         applyCustomViewportMode(current, deviceMode),
       );
-      setSettingsPanelOpen(true);
+      setFloatingUi({ kind: 'settings' });
       setFocusViewportRequest((current) => current + 1);
     },
-    [setSettingsPanelOpen],
+    [],
   );
+
+  const openViewportMenu = useCallback((deviceMode: DeviceMode) => {
+    setFloatingUi({ kind: 'viewport-menu', deviceMode });
+  }, []);
+
+  const dismissViewportMenu = useCallback((deviceMode: DeviceMode) => {
+    setFloatingUi((current) =>
+      dismissViewportMenuState(current, deviceMode),
+    );
+  }, []);
 
   const setCertificateAllowed = useCallback(
     async (allowed: boolean) => {
@@ -370,6 +417,7 @@ export function App(): React.JSX.Element {
         settings={settings}
         busy={Boolean(busy)}
         settingsOpen={settingsPanelOpen}
+        openViewportMenu={activeViewportMenu}
         onUrlChange={setUrlInput}
         onNavigate={() => void navigate()}
         onBack={() => void window.frameShot.goBack()}
@@ -377,10 +425,14 @@ export function App(): React.JSX.Element {
         onReload={() => void window.frameShot.reload(false)}
         onViewportPreset={selectViewportPreset}
         onCustomViewport={openCustomViewport}
+        onViewportMenuOpen={openViewportMenu}
+        onViewportMenuDismiss={dismissViewportMenu}
         onCopy={() => void exportImage('clipboard')}
         onSave={() => void exportImage('file')}
         onSettingsToggle={() =>
-          setSettingsPanelOpen((current) => !current)
+          setFloatingUi((current) =>
+            current?.kind === 'settings' ? null : { kind: 'settings' },
+          )
         }
       />
 
@@ -410,7 +462,7 @@ export function App(): React.JSX.Element {
             settings={settings}
             pageUrl={navigation.url}
             pageLoading={navigation.isLoading}
-            targetVisible={!settingsPanelOpen}
+            targetSuspensionReason={targetSuspensionReason}
             onTargetLayout={window.frameShot.setTargetLayout}
           />
         </div>

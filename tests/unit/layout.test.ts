@@ -7,12 +7,18 @@ import {
 import { DEFAULT_SETTINGS } from '@shared/presets';
 
 describe('calculateCompositionLayout', () => {
-  it('uses the compact default margin and desktop corner radii', () => {
-    expect(DEFAULT_SETTINGS.margin).toBe(8);
+  it('uses the default artboard margin and desktop corner radii', () => {
+    expect(DEFAULT_SETTINGS.margin).toBe(32);
     expect(DEFAULT_SETTINGS.cornerRadius).toBe(8);
 
     const browser = calculateCompositionLayout(DEFAULT_SETTINGS);
 
+    expect(browser.artboard).toEqual({
+      x: 164,
+      y: 0,
+      width: 1592,
+      height: 1080,
+    });
     expect(browser.frame.radius).toBe(8);
     expect(browser.screen.radius).toBe(6);
   });
@@ -95,8 +101,87 @@ describe('calculateCompositionLayout', () => {
         settings.margin,
         8,
       );
+
+      const expectedArtboard = roundRectangleEdges({
+        left: Math.max(0, layout.frame.x - settings.margin),
+        top: Math.max(0, layout.frame.y - settings.margin),
+        right: Math.min(
+          settings.outputWidth,
+          layout.frame.x + layout.frame.width + settings.margin,
+        ),
+        bottom: Math.min(
+          settings.outputHeight,
+          layout.frame.y + layout.frame.height + settings.margin,
+        ),
+      });
+      expect(layout.artboard).toEqual(expectedArtboard);
+      expect(Number.isInteger(layout.artboard.x)).toBe(true);
+      expect(Number.isInteger(layout.artboard.y)).toBe(true);
+      expect(Number.isInteger(layout.artboard.width)).toBe(true);
+      expect(Number.isInteger(layout.artboard.height)).toBe(true);
+      expect(layout.artboard.x).toBeGreaterThanOrEqual(0);
+      expect(layout.artboard.y).toBeGreaterThanOrEqual(0);
+      expect(layout.artboard.x + layout.artboard.width).toBeLessThanOrEqual(
+        settings.outputWidth,
+      );
+      expect(layout.artboard.y + layout.artboard.height).toBeLessThanOrEqual(
+        settings.outputHeight,
+      );
     },
   );
+
+  it.each(['browser', 'phone', 'tablet', 'none'] as const)(
+    'keeps the requested margin around a portrait %s frame',
+    (frameStyle) => {
+      const settings = {
+        ...DEFAULT_SETTINGS,
+        outputWidth: 1080,
+        outputHeight: 1350,
+        viewportWidth: 390,
+        viewportHeight: 844,
+        frameStyle,
+        deviceMode: 'mobile' as const,
+        margin: 57,
+      };
+      const layout = calculateCompositionLayout(settings);
+      const gaps = {
+        left: layout.frame.x - layout.artboard.x,
+        top: layout.frame.y - layout.artboard.y,
+        right:
+          layout.artboard.x +
+          layout.artboard.width -
+          layout.frame.x -
+          layout.frame.width,
+        bottom:
+          layout.artboard.y +
+          layout.artboard.height -
+          layout.frame.y -
+          layout.frame.height,
+      };
+
+      for (const gap of Object.values(gaps)) {
+        expect(gap).toBeCloseTo(settings.margin, 0);
+      }
+    },
+  );
+
+  it('clamps an oversized requested margin into the maximum canvas', () => {
+    const layout = calculateCompositionLayout({
+      ...DEFAULT_SETTINGS,
+      outputWidth: 320,
+      outputHeight: 320,
+      viewportWidth: 3840,
+      viewportHeight: 240,
+      frameStyle: 'none',
+      margin: 2_000,
+    });
+
+    expect(layout.artboard.x).toBeGreaterThanOrEqual(0);
+    expect(layout.artboard.y).toBeGreaterThanOrEqual(0);
+    expect(layout.artboard.x + layout.artboard.width).toBeLessThanOrEqual(320);
+    expect(layout.artboard.y + layout.artboard.height).toBeLessThanOrEqual(320);
+    expect(layout.artboard.width).toBe(320);
+  });
 
   it('keeps the browser controls inside the fitted frame', () => {
     const layout = calculateCompositionLayout(DEFAULT_SETTINGS);

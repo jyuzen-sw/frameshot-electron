@@ -1,8 +1,9 @@
 import {
+  useCallback,
   useEffect,
   useRef,
-  useState,
   type KeyboardEvent,
+  type MouseEvent,
   type RefObject,
 } from 'react';
 import {
@@ -36,6 +37,7 @@ interface ToolbarProps {
   settings: CaptureSettings;
   busy: boolean;
   settingsOpen: boolean;
+  openViewportMenu: DeviceMode | null;
   onUrlChange: (value: string) => void;
   onNavigate: () => void;
   onBack: () => void;
@@ -43,6 +45,8 @@ interface ToolbarProps {
   onReload: () => void;
   onViewportPreset: (preset: ViewportPreset) => void;
   onCustomViewport: (deviceMode: DeviceMode) => void;
+  onViewportMenuOpen: (deviceMode: DeviceMode) => void;
+  onViewportMenuDismiss: (deviceMode: DeviceMode) => void;
   onCopy: () => void;
   onSave: () => void;
   onSettingsToggle: () => void;
@@ -77,7 +81,13 @@ interface ViewportMenuListProps {
   settings: CaptureSettings;
   onViewportPreset: (preset: ViewportPreset) => void;
   onCustomViewport: (deviceMode: DeviceMode) => void;
-  onDismiss: () => void;
+  onDismiss: (restoreTriggerFocus: boolean) => void;
+}
+
+function shouldRestoreTriggerFocus(
+  event: MouseEvent<HTMLButtonElement>,
+): boolean {
+  return event.detail === 0;
 }
 
 export function ViewportMenuList({
@@ -119,7 +129,7 @@ export function ViewportMenuList({
         if (event.key === 'Escape') {
           event.preventDefault();
           event.stopPropagation();
-          onDismiss();
+          onDismiss(true);
           return;
         }
         moveMenuFocus(event);
@@ -155,9 +165,9 @@ export function ViewportMenuList({
                   aria-checked={selected}
                   key={preset.id}
                   className={selected ? 'selected' : ''}
-                  onClick={() => {
+                  onClick={(event) => {
                     onViewportPreset(preset);
-                    onDismiss();
+                    onDismiss(shouldRestoreTriggerFocus(event));
                   }}
                 >
                   <span>
@@ -186,7 +196,7 @@ export function ViewportMenuList({
         }
         onClick={() => {
           onCustomViewport(deviceMode);
-          onDismiss();
+          onDismiss(false);
         }}
       >
         <span><b>Custom…</b><small>幅と高さを入力</small></span>
@@ -206,6 +216,7 @@ export function Toolbar({
   settings,
   busy,
   settingsOpen,
+  openViewportMenu,
   onUrlChange,
   onNavigate,
   onBack,
@@ -213,11 +224,12 @@ export function Toolbar({
   onReload,
   onViewportPreset,
   onCustomViewport,
+  onViewportMenuOpen,
+  onViewportMenuDismiss,
   onCopy,
   onSave,
   onSettingsToggle,
 }: ToolbarProps): React.JSX.Element {
-  const [openMenu, setOpenMenu] = useState<DeviceMode | null>(null);
   const viewportMenusRef = useRef<HTMLDivElement>(null);
   const viewportTriggerRefs = useRef<
     Record<DeviceMode, HTMLButtonElement | null>
@@ -227,29 +239,31 @@ export function Toolbar({
   });
   const exactPreset = findViewportPreset(settings);
 
-  const closeViewportMenu = (
-    deviceMode: DeviceMode,
-    restoreTriggerFocus: boolean,
-  ): void => {
-    setOpenMenu(null);
-    if (restoreTriggerFocus) {
-      viewportTriggerRefs.current[deviceMode]?.focus();
-    }
-  };
+  const closeViewportMenu = useCallback(
+    (deviceMode: DeviceMode, restoreTriggerFocus: boolean): void => {
+      onViewportMenuDismiss(deviceMode);
+      if (restoreTriggerFocus) {
+        requestAnimationFrame(() =>
+          viewportTriggerRefs.current[deviceMode]?.focus(),
+        );
+      }
+    },
+    [onViewportMenuDismiss],
+  );
 
   useEffect(() => {
-    if (!openMenu) return;
+    if (!openViewportMenu) return;
     const closeOnPointer = (event: PointerEvent) => {
       if (
         event.target instanceof Node &&
         !viewportMenusRef.current?.contains(event.target)
       ) {
-        setOpenMenu(null);
+        closeViewportMenu(openViewportMenu, false);
       }
     };
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') {
-        closeViewportMenu(openMenu, true);
+        closeViewportMenu(openViewportMenu, true);
       }
     };
     document.addEventListener('pointerdown', closeOnPointer);
@@ -258,7 +272,7 @@ export function Toolbar({
       document.removeEventListener('pointerdown', closeOnPointer);
       window.removeEventListener('keydown', closeOnEscape);
     };
-  }, [openMenu]);
+  }, [closeViewportMenu, openViewportMenu]);
 
   const renderViewportMenu = (
     deviceMode: DeviceMode,
@@ -266,7 +280,7 @@ export function Toolbar({
     const active = settings.deviceMode === deviceMode;
     const label = deviceMode === 'desktop' ? 'Desktop' : 'Phone';
     const Icon = deviceMode === 'desktop' ? MonitorIcon : PhoneIcon;
-    const expanded = openMenu === deviceMode;
+    const expanded = openViewportMenu === deviceMode;
     return (
       <div
         className={`viewport-menu ${active ? 'active' : ''}`}
@@ -280,15 +294,17 @@ export function Toolbar({
           className="viewport-menu-trigger"
           aria-haspopup="menu"
           aria-expanded={expanded}
-          onClick={() =>
-            setOpenMenu((current) =>
-              current === deviceMode ? null : deviceMode,
-            )
-          }
+          onClick={() => {
+            if (expanded) {
+              closeViewportMenu(deviceMode, false);
+            } else {
+              onViewportMenuOpen(deviceMode);
+            }
+          }}
           onKeyDown={(event) => {
             if (event.key === 'ArrowDown') {
               event.preventDefault();
-              setOpenMenu(deviceMode);
+              onViewportMenuOpen(deviceMode);
               requestAnimationFrame(() => {
                 viewportMenusRef.current
                   ?.querySelector<HTMLButtonElement>(
@@ -317,7 +333,9 @@ export function Toolbar({
             settings={settings}
             onViewportPreset={onViewportPreset}
             onCustomViewport={onCustomViewport}
-            onDismiss={() => closeViewportMenu(deviceMode, true)}
+            onDismiss={(restoreTriggerFocus) =>
+              closeViewportMenu(deviceMode, restoreTriggerFocus)
+            }
           />
         )}
       </div>

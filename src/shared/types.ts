@@ -111,6 +111,12 @@ export interface FrameShotApi {
 
 export interface CompositionLayout {
   scale: number;
+  artboard: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
   frame: {
     x: number;
     y: number;
