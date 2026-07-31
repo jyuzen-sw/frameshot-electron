@@ -121,8 +121,9 @@ async function createMainWindow(): Promise<void> {
   };
   disposeCurrentWindow = disposeWindow;
 
+  window.on('close', disposeWindow);
+
   window.on('closed', () => {
-    disposeWindow();
     if (disposeCurrentWindow === disposeWindow) {
       disposeCurrentWindow = null;
     }
@@ -138,6 +139,7 @@ async function createMainWindow(): Promise<void> {
       await window.loadURL(APP_ENTRY_URL);
     }
   } catch (error) {
+    disposeWindow();
     if (!window.isDestroyed()) window.destroy();
     throw error;
   }

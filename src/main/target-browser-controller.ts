@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  BaseWindow,
   BrowserWindow,
   dialog,
   type NativeImage,
@@ -17,6 +18,10 @@ import type {
 } from '@shared/types';
 import { getHostname, isSupportedTargetUrl, normalizeTargetUrl } from '@shared/url';
 import { dispatchAppShortcutInput } from './app-shortcuts';
+import {
+  captureExactPage,
+  captureWithRestoration,
+} from './exact-page-capture';
 import type { PreferencesStore } from './preferences-store';
 import { configureTargetSession, TARGET_PARTITION } from './security';
 import {
@@ -75,7 +80,8 @@ export class TargetBrowserController {
   private currentLayout: TargetViewLayout | null = null;
   private reconfiguring = false;
   private disposed = false;
-  private viewAttached = false;
+  private viewOwner: BaseWindow | null = null;
+  private captureHost: BaseWindow | null = null;
   private captureInProgress = false;
 
   public constructor(
@@ -164,87 +170,116 @@ export class TargetBrowserController {
     let insertedCssKey: string | null = null;
     this.captureInProgress = true;
 
-    try {
-      this.view.setVisible(false);
-      this.view.setBorderRadius(0);
-      webContents.setBackgroundThrottling(false);
+    return captureWithRestoration({
+      capture: async () => {
+        this.view.setVisible(false);
+        this.view.setBorderRadius(0);
+        webContents.setBackgroundThrottling(false);
 
-      const physicalWidth = Math.round(
-        settings.viewportWidth * settings.captureScale,
-      );
-      const physicalHeight = Math.round(
-        settings.viewportHeight * settings.captureScale,
-      );
-      this.view.setBounds({
-        x: 0,
-        y: 0,
-        width: physicalWidth,
-        height: physicalHeight,
-      });
-      webContents.enableDeviceEmulation({
-        screenPosition: settings.deviceMode === 'mobile' ? 'mobile' : 'desktop',
-        screenSize: {
-          width: settings.viewportWidth,
-          height: settings.viewportHeight,
-        },
-        viewPosition: { x: 0, y: 0 },
-        deviceScaleFactor: 1,
-        viewSize: {
-          width: settings.viewportWidth,
-          height: settings.viewportHeight,
-        },
-        scale: settings.captureScale,
-      });
+        const physicalWidth = Math.round(
+          settings.viewportWidth * settings.captureScale,
+        );
+        const physicalHeight = Math.round(
+          settings.viewportHeight * settings.captureScale,
+        );
+        const captureHost = new BaseWindow({
+          width: physicalWidth,
+          height: physicalHeight,
+          show: false,
+          useContentSize: true,
+          frame: false,
+          focusable: false,
+          enableLargerThanScreen: true,
+          backgroundColor: '#000000',
+        });
+        this.captureHost = captureHost;
+        this.moveTargetViewTo(captureHost);
+        this.view.setBounds({
+          x: 0,
+          y: 0,
+          width: physicalWidth,
+          height: physicalHeight,
+        });
+        webContents.enableDeviceEmulation({
+          screenPosition:
+            settings.deviceMode === 'mobile' ? 'mobile' : 'desktop',
+          screenSize: {
+            width: settings.viewportWidth,
+            height: settings.viewportHeight,
+          },
+          viewPosition: { x: 0, y: 0 },
+          deviceScaleFactor: 1,
+          viewSize: {
+            width: settings.viewportWidth,
+            height: settings.viewportHeight,
+          },
+          scale: settings.captureScale,
+        });
 
-      insertedCssKey = await webContents.insertCSS(captureCss(settings), {
-        cssOrigin: 'user',
-      });
+        insertedCssKey = await webContents.insertCSS(captureCss(settings), {
+          cssOrigin: 'user',
+        });
+        this.view.setVisible(true);
 
-      await webContents
-        .executeJavaScript(`
-          (async () => {
-            if (document.fonts && document.fonts.ready) {
-              await Promise.race([
-                document.fonts.ready,
-                new Promise((resolve) => setTimeout(resolve, 3000))
-              ]);
-            }
-            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-          })();
-        `)
-        .catch(() => undefined);
-
-      await delay(Math.max(50, settings.waitMs));
-      const image = await webContents.capturePage(undefined, {
-        stayHidden: true,
-        stayAwake: true,
-      });
-      if (image.isEmpty()) {
-        throw new Error('ページ画像の取得に失敗しました。');
-      }
-      return image;
-    } finally {
-      try {
-        if (insertedCssKey && !webContents.isDestroyed()) {
-          await webContents
-            .removeInsertedCSS(insertedCssKey)
-            .catch(() => undefined);
-        }
-        if (!webContents.isDestroyed()) {
-          webContents.setBackgroundThrottling(wasBackgroundThrottling);
-        }
-        if (!this.disposed && !this.reconfiguring) {
-          const restoreLayout = this.currentLayout ?? savedLayout;
-          if (restoreLayout) {
-            this.applyInteractiveLayout(restoreLayout);
-          } else {
+        return captureExactPage(
+          {
+            prepareAttempt: async () => {
+              await webContents.executeJavaScript(`
+                (async () => {
+                  if (document.fonts && document.fonts.ready) {
+                    await Promise.race([
+                      document.fonts.ready,
+                      new Promise((resolve) => setTimeout(resolve, 3000))
+                    ]);
+                  }
+                  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                })();
+              `);
+              await delay(Math.max(50, settings.waitMs));
+            },
+            invalidate: () => webContents.invalidate(),
+            capturePage: (rectangle, options) =>
+              webContents.capturePage(rectangle, options),
+          },
+          {
+            width: physicalWidth,
+            height: physicalHeight,
+          },
+        );
+      },
+      restore: async () => {
+        try {
+          if (!webContents.isDestroyed()) {
             this.view.setVisible(false);
           }
+          this.destroyCaptureHost();
+          if (insertedCssKey && !webContents.isDestroyed()) {
+            await webContents
+              .removeInsertedCSS(insertedCssKey)
+              .catch(() => undefined);
+          }
+          if (!webContents.isDestroyed()) {
+            webContents.setBackgroundThrottling(wasBackgroundThrottling);
+          }
+          if (
+            !this.disposed &&
+            !this.reconfiguring &&
+            !this.mainWindow.isDestroyed() &&
+            !webContents.isDestroyed()
+          ) {
+            this.moveTargetViewTo(this.mainWindow);
+            const restoreLayout = this.currentLayout ?? savedLayout;
+            if (restoreLayout) {
+              this.applyInteractiveLayout(restoreLayout);
+            } else {
+              this.view.setVisible(false);
+            }
+          }
+        } finally {
+          this.captureInProgress = false;
         }
-      } finally {
-        this.captureInProgress = false;
-      }
-    }
+      },
+    });
   }
 
   public async resetSession(): Promise<void> {
@@ -360,7 +395,7 @@ export class TargetBrowserController {
     this.view.setBackgroundColor('#ffffff');
     this.view.setVisible(false);
     this.mainWindow.contentView.addChildView(this.view);
-    this.viewAttached = true;
+    this.viewOwner = this.mainWindow;
     this.configureWebContents();
   }
 
@@ -394,12 +429,44 @@ export class TargetBrowserController {
   }
 
   private destroyTargetView(): void {
-    if (!this.viewAttached) return;
-    this.viewAttached = false;
-    this.view.setVisible(false);
-    this.mainWindow.contentView.removeChildView(this.view);
-    if (!this.view.webContents.isDestroyed()) {
-      this.view.webContents.close({ waitForBeforeUnload: false });
+    const owner = this.viewOwner;
+    this.viewOwner = null;
+    const webContents = this.view.webContents;
+    if (owner && !owner.isDestroyed()) {
+      if (!webContents.isDestroyed()) {
+        this.view.setVisible(false);
+      }
+      owner.contentView.removeChildView(this.view);
+    }
+    this.destroyCaptureHost();
+    if (!webContents.isDestroyed()) {
+      webContents.close({ waitForBeforeUnload: false });
+    }
+  }
+
+  private moveTargetViewTo(owner: BaseWindow): void {
+    if (this.viewOwner === owner) return;
+    const previousOwner = this.viewOwner;
+    this.viewOwner = null;
+    if (previousOwner && !previousOwner.isDestroyed()) {
+      previousOwner.contentView.removeChildView(this.view);
+    }
+    owner.contentView.addChildView(this.view);
+    this.viewOwner = owner;
+  }
+
+  private destroyCaptureHost(): void {
+    const captureHost = this.captureHost;
+    this.captureHost = null;
+    if (!captureHost) return;
+    if (this.viewOwner === captureHost) {
+      if (!captureHost.isDestroyed()) {
+        captureHost.contentView.removeChildView(this.view);
+      }
+      this.viewOwner = null;
+    }
+    if (!captureHost.isDestroyed()) {
+      captureHost.destroy();
     }
   }
 

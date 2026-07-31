@@ -21,6 +21,10 @@ import {
   EXPORT_RENDERER_HASH,
   installAppProtocol,
 } from './app-protocol';
+import {
+  assertImageClipboardSupported,
+  writeVerifiedClipboardImage,
+} from './clipboard-image';
 import { ExclusiveOperation } from './exclusive-operation';
 import {
   EXPORT_PARTITION,
@@ -157,6 +161,9 @@ export class ExportService {
       if (destination !== 'clipboard' && destination !== 'file') {
         throw new Error('書き出し先が不正です。');
       }
+      if (destination === 'clipboard') {
+        assertImageClipboardSupported();
+      }
 
       let outputPath: string | undefined;
       if (destination === 'file') {
@@ -175,7 +182,13 @@ export class ExportService {
       this.assertNotDisposed();
 
       if (destination === 'clipboard') {
-        clipboard.writeImage(composite);
+        writeVerifiedClipboardImage(
+          {
+            writeImage: (image) => clipboard.writeImage(image, 'clipboard'),
+            readImage: () => clipboard.readImage('clipboard'),
+          },
+          composite,
+        );
       } else {
         await fs.writeFile(outputPath!, composite.toPNG());
       }

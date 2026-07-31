@@ -60,6 +60,7 @@ export function installMainWindowNavigationGuard({
 }: InstallMainWindowNavigationGuardOptions): () => void {
   let promptInProgress = false;
   let disposed = false;
+  const webContents = window.webContents;
 
   const requestTargetNavigation = async (rawUrl: string): Promise<void> => {
     const parsed = parseExternalHttpUrl(rawUrl);
@@ -101,17 +102,18 @@ export function installMainWindowNavigationGuard({
     void requestTargetNavigation(event.url);
   };
 
-  window.webContents.on('will-navigate', guardNavigation);
-  window.webContents.on('will-redirect', guardNavigation);
-  window.webContents.setWindowOpenHandler(({ url }) => {
+  webContents.on('will-navigate', guardNavigation);
+  webContents.on('will-redirect', guardNavigation);
+  webContents.setWindowOpenHandler(({ url }) => {
     void requestTargetNavigation(url);
     return { action: 'deny' };
   });
 
   return () => {
     disposed = true;
-    window.webContents.removeListener('will-navigate', guardNavigation);
-    window.webContents.removeListener('will-redirect', guardNavigation);
-    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    if (webContents.isDestroyed()) return;
+    webContents.removeListener('will-navigate', guardNavigation);
+    webContents.removeListener('will-redirect', guardNavigation);
+    webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   };
 }
