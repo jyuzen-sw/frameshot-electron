@@ -945,32 +945,6 @@ html[data-renderer="export"] .composition-canvas {
   user-select: none;
 }
 
-.canvas-caption {
-  position: absolute;
-  z-index: 4;
-  left: 10px;
-  right: 10px;
-  bottom: 8px;
-  display: flex;
-  justify-content: space-between;
-  gap: 14px;
-  color: rgba(217, 225, 237, 0.72);
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.055em;
-  text-transform: uppercase;
-  pointer-events: none;
-}
-
-.canvas-caption > span {
-  padding: 4px 7px;
-  border: 1px solid rgba(148, 163, 184, 0.1);
-  border-radius: 7px;
-  background: rgba(8, 11, 17, 0.58);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
-  backdrop-filter: blur(8px);
-}
-
 .page-error-banner {
   position: absolute;
   z-index: 12;

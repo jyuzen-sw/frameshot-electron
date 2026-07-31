@@ -12,12 +12,13 @@ import {
 import { GlobeIcon } from './Icons';
 
 export type CompositionSlotMode = 'live' | 'image';
+export type TargetSuspensionReason = 'settings' | 'viewport-menu';
 
 interface CompositionCanvasProps {
   settings: CaptureSettings;
   pageUrl: string;
   pageLoading?: boolean;
-  pageSuspended?: boolean;
+  pageSuspensionReason?: TargetSuspensionReason;
   slotMode: CompositionSlotMode;
   pageImageUrl?: string;
   canvasRef?: Ref<HTMLDivElement>;
@@ -33,7 +34,7 @@ export function CompositionCanvas({
   settings,
   pageUrl,
   pageLoading = false,
-  pageSuspended = false,
+  pageSuspensionReason,
   slotMode,
   pageImageUrl,
   canvasRef,
@@ -65,7 +66,7 @@ export function CompositionCanvas({
   const pageSlot = (
     <div
       ref={targetRef}
-      className={`composition-page-slot ${pageLoading ? 'is-loading' : ''} ${pageSuspended && pageUrl ? 'is-suspended' : ''}`}
+      className={`composition-page-slot ${pageLoading ? 'is-loading' : ''} ${pageSuspensionReason && pageUrl ? 'is-suspended' : ''}`}
       style={screenStyle}
       data-slot-mode={slotMode}
       aria-label="対象Webページの表示領域"
@@ -78,9 +79,13 @@ export function CompositionCanvas({
           alt="Captured page"
           draggable={false}
         />
-      ) : pageSuspended && pageUrl ? (
+      ) : pageSuspensionReason && pageUrl ? (
         <div className="target-suspended-placeholder">
-          <strong>設定を編集中</strong>
+          <strong>
+            {pageSuspensionReason === 'viewport-menu'
+              ? '表示サイズを選択中'
+              : '設定を編集中'}
+          </strong>
           <span>ライブページは一時的に非表示です</span>
         </div>
       ) : !pageUrl ? (

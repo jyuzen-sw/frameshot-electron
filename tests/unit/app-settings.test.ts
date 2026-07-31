@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { restoreSettings } from '../../src/renderer/App';
+import {
+  dismissViewportMenuState,
+  restoreSettings,
+} from '../../src/renderer/App';
 import { DEFAULT_SETTINGS } from '../../src/shared/presets';
 
 function installSettingsStorage(
@@ -88,5 +91,28 @@ describe('saved capture settings', () => {
     expect(JSON.parse(entries.get('frameshot:settings:v2') ?? '')).toEqual(
       v2,
     );
+  });
+});
+
+describe('floating UI state', () => {
+  it('dismisses only the viewport menu that requested dismissal', () => {
+    expect(
+      dismissViewportMenuState(
+        { kind: 'viewport-menu', deviceMode: 'desktop' },
+        'desktop',
+      ),
+    ).toBeNull();
+    expect(
+      dismissViewportMenuState(
+        { kind: 'viewport-menu', deviceMode: 'mobile' },
+        'desktop',
+      ),
+    ).toEqual({ kind: 'viewport-menu', deviceMode: 'mobile' });
+  });
+
+  it('does not let a stale menu dismissal close settings', () => {
+    expect(
+      dismissViewportMenuState({ kind: 'settings' }, 'desktop'),
+    ).toEqual({ kind: 'settings' });
   });
 });
