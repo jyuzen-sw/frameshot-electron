@@ -84,6 +84,12 @@ export function calculateCompositionLayout(
   const frameY = (outputHeight - frameHeight) / 2;
   const screenWidth = viewportWidth * scale;
   const screenHeight = viewportHeight * scale;
+  const artboard = roundRectangleEdges({
+    left: clamp(frameX - margin, 0, outputWidth),
+    top: clamp(frameY - margin, 0, outputHeight),
+    right: clamp(frameX + frameWidth + margin, 0, outputWidth),
+    bottom: clamp(frameY + frameHeight + margin, 0, outputHeight),
+  });
 
   const desktopScreenRadius = Math.max(0, settings.cornerRadius - 2);
   const frameRadius =
@@ -103,6 +109,7 @@ export function calculateCompositionLayout(
 
   return {
     scale,
+    artboard,
     frame: {
       x: frameX,
       y: frameY,

@@ -24,13 +24,14 @@ afterEach(() => {
 });
 
 describe('saved capture settings', () => {
-  it('prefers current v3 settings without changing user values', () => {
+  it('prefers current v4 settings without changing user values', () => {
     const current = {
       ...DEFAULT_SETTINGS,
-      margin: 19,
+      margin: 8,
       cornerRadius: 13,
     };
     installSettingsStorage({
+      'frameshot:settings:v4': current,
       'frameshot:settings:v3': current,
       'frameshot:settings:v2': {
         ...DEFAULT_SETTINGS,
@@ -42,25 +43,50 @@ describe('saved capture settings', () => {
     expect(restoreSettings()).toEqual(current);
   });
 
-  it('migrates only legacy defaults and leaves the v2 value available', () => {
-    const legacy = {
+  it('migrates the v3 default margin and leaves the stored value available', () => {
+    const v3 = {
       ...DEFAULT_SETTINGS,
-      margin: 32,
-      cornerRadius: 28,
+      margin: 8,
       gradientAngle: 212,
-      waitMs: 1_000,
     };
     const entries = installSettingsStorage({
-      'frameshot:settings:v2': legacy,
+      'frameshot:settings:v3': v3,
     });
 
     expect(restoreSettings()).toEqual({
-      ...legacy,
+      ...v3,
+      margin: 32,
+    });
+    expect(JSON.parse(entries.get('frameshot:settings:v3') ?? '')).toEqual(v3);
+  });
+
+  it('preserves a custom v3 margin', () => {
+    const v3 = {
+      ...DEFAULT_SETTINGS,
+      margin: 19,
+    };
+    installSettingsStorage({ 'frameshot:settings:v3': v3 });
+
+    expect(restoreSettings()).toEqual(v3);
+  });
+
+  it('migrates only the v2 corner-radius default and preserves its margin', () => {
+    const v2 = {
+      ...DEFAULT_SETTINGS,
       margin: 8,
+      cornerRadius: 28,
+      waitMs: 1_000,
+    };
+    const entries = installSettingsStorage({
+      'frameshot:settings:v2': v2,
+    });
+
+    expect(restoreSettings()).toEqual({
+      ...v2,
       cornerRadius: 8,
     });
     expect(JSON.parse(entries.get('frameshot:settings:v2') ?? '')).toEqual(
-      legacy,
+      v2,
     );
   });
 });

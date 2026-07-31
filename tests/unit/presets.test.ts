@@ -7,13 +7,14 @@ import {
   applyViewportPreset,
   findViewportPreset,
   migrateV2Settings,
+  migrateV3Settings,
   viewportPresetsFor,
 } from '@shared/presets';
 
 describe('built-in presets', () => {
-  it('uses the compact frame spacing and natural mint background by default', () => {
+  it('uses a 32px frame margin and natural mint background by default', () => {
     expect(DEFAULT_SETTINGS).toMatchObject({
-      margin: 8,
+      margin: 32,
       cornerRadius: 8,
       gradientFrom: '#e3f2e8',
       gradientTo: '#ebf5ed',
@@ -114,13 +115,13 @@ describe('built-in presets', () => {
   });
 
   it.each([
-    { margin: 32, cornerRadius: 28, nextMargin: 8, nextRadius: 8 },
-    { margin: 32, cornerRadius: 12, nextMargin: 8, nextRadius: 12 },
-    { margin: 12, cornerRadius: 28, nextMargin: 12, nextRadius: 8 },
-    { margin: 31, cornerRadius: 27, nextMargin: 31, nextRadius: 27 },
+    { margin: 32, cornerRadius: 28, nextRadius: 8 },
+    { margin: 32, cornerRadius: 12, nextRadius: 12 },
+    { margin: 12, cornerRadius: 28, nextRadius: 8 },
+    { margin: 31, cornerRadius: 27, nextRadius: 27 },
   ])(
-    'migrates only legacy defaults from margin $margin and radius $cornerRadius',
-    ({ margin, cornerRadius, nextMargin, nextRadius }) => {
+    'migrates only the v2 radius default from margin $margin and radius $cornerRadius',
+    ({ margin, cornerRadius, nextRadius }) => {
       const previous = {
         ...DEFAULT_SETTINGS,
         margin,
@@ -130,8 +131,28 @@ describe('built-in presets', () => {
 
       expect(migrateV2Settings(previous)).toEqual({
         ...previous,
-        margin: nextMargin,
         cornerRadius: nextRadius,
+      });
+    },
+  );
+
+  it.each([
+    { margin: 8, nextMargin: 32 },
+    { margin: 0, nextMargin: 0 },
+    { margin: 19, nextMargin: 19 },
+    { margin: 32, nextMargin: 32 },
+  ])(
+    'migrates the v3 margin $margin to $nextMargin',
+    ({ margin, nextMargin }) => {
+      const previous = {
+        ...DEFAULT_SETTINGS,
+        margin,
+        gradientAngle: 212,
+      };
+
+      expect(migrateV3Settings(previous)).toEqual({
+        ...previous,
+        margin: nextMargin,
       });
     },
   );

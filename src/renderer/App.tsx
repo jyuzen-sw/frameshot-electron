@@ -10,6 +10,7 @@ import {
   applyViewportPreset,
   cloneSettings,
   migrateV2Settings,
+  migrateV3Settings,
 } from '@shared/presets';
 import type {
   AppShortcut,
@@ -33,8 +34,9 @@ import {
 } from './components/Icons';
 import { usePersistentState } from './hooks/usePersistentState';
 
-const SETTINGS_STORAGE_KEY = 'frameshot:settings:v3';
-const LEGACY_SETTINGS_STORAGE_KEY = 'frameshot:settings:v2';
+const SETTINGS_STORAGE_KEY = 'frameshot:settings:v4';
+const V3_SETTINGS_STORAGE_KEY = 'frameshot:settings:v3';
+const V2_SETTINGS_STORAGE_KEY = 'frameshot:settings:v2';
 
 const EMPTY_NAVIGATION: NavigationState = {
   url: '',
@@ -67,10 +69,16 @@ export function restoreSettings(): CaptureSettings {
     console.warn('Could not restore current settings:', error);
   }
   try {
-    const legacy = readStoredSettings(LEGACY_SETTINGS_STORAGE_KEY);
-    if (legacy) return migrateV2Settings(legacy);
+    const v3 = readStoredSettings(V3_SETTINGS_STORAGE_KEY);
+    if (v3) return migrateV3Settings(v3);
   } catch (error) {
-    console.warn('Could not migrate legacy settings:', error);
+    console.warn('Could not migrate v3 settings:', error);
+  }
+  try {
+    const v2 = readStoredSettings(V2_SETTINGS_STORAGE_KEY);
+    if (v2) return migrateV2Settings(v2);
+  } catch (error) {
+    console.warn('Could not migrate v2 settings:', error);
   }
   return cloneSettings(DEFAULT_SETTINGS);
 }
@@ -208,7 +216,7 @@ export function App(): React.JSX.Element {
           message:
             destination === 'clipboard'
               ? `${result.width} × ${result.height} の画像をコピーしました。`
-              : `PNGを保存しました: ${result.path ?? ''}`,
+              : `${result.width} × ${result.height} のPNGを保存しました: ${result.path ?? ''}`,
         });
       } catch (error) {
         showError(error);

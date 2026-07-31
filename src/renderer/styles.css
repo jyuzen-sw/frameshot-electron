@@ -578,6 +578,12 @@ svg {
 .composition-canvas {
   position: relative;
   overflow: hidden;
+  background: #000;
+}
+
+.composition-artboard {
+  position: absolute;
+  overflow: hidden;
   isolation: isolate;
   background: linear-gradient(
     var(--background-angle),
@@ -586,7 +592,7 @@ svg {
   );
 }
 
-.composition-canvas.background-fluid,
+.composition-artboard.background-fluid,
 .gradient-swatch.background-fluid {
   background:
     radial-gradient(
@@ -1252,6 +1258,15 @@ html[data-renderer="export"] .composition-canvas {
   color: #b9c3d1;
   border-color: rgba(148, 163, 184, 0.24);
   background: rgba(148, 163, 184, 0.07);
+}
+
+.planned-export-size {
+  display: block;
+  margin-top: 7px;
+  color: #7d899c;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 7.5px;
+  text-align: right;
 }
 
 .frame-selector {

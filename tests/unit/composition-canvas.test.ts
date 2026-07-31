@@ -11,6 +11,12 @@ function canvasOpeningTag(markup: string): string {
   return tag;
 }
 
+function artboardOpeningTag(markup: string): string {
+  const tag = markup.match(/<div class="composition-artboard[^>]*>/)?.[0];
+  if (!tag) throw new Error('Composition artboard was not rendered.');
+  return tag;
+}
+
 describe('CompositionCanvas', () => {
   it('uses the same browser-frame markup for live and image slots', () => {
     const live = renderToStaticMarkup(
@@ -31,7 +37,8 @@ describe('CompositionCanvas', () => {
     );
 
     for (const markup of [live, image]) {
-      expect(markup).toContain('class="composition-canvas background-soft"');
+      expect(markup).toContain('class="composition-canvas"');
+      expect(markup).toContain('class="composition-artboard background-soft"');
       expect(markup).toContain('class="composition-browser-frame composition-frame-shadow"');
       expect(markup).toContain('class="composition-browser-bar"');
       expect(markup).toContain('example.com');
@@ -68,12 +75,13 @@ describe('CompositionCanvas', () => {
     );
 
     expect(canvasOpeningTag(live)).toBe(canvasOpeningTag(image));
-    expect(canvasOpeningTag(live)).toContain(
-      'class="composition-canvas background-fluid"',
+    expect(artboardOpeningTag(live)).toBe(artboardOpeningTag(image));
+    expect(artboardOpeningTag(live)).toContain(
+      'class="composition-artboard background-fluid"',
     );
-    expect(canvasOpeningTag(live)).toContain('--background-angle:128deg');
-    expect(canvasOpeningTag(live)).toContain('--background-from:#d9f2ec');
-    expect(canvasOpeningTag(live)).toContain('--background-to:#dce7fb');
+    expect(artboardOpeningTag(live)).toContain('--background-angle:128deg');
+    expect(artboardOpeningTag(live)).toContain('--background-from:#d9f2ec');
+    expect(artboardOpeningTag(live)).toContain('--background-to:#dce7fb');
   });
 
   it('shows a dedicated placeholder while the live page is suspended', () => {

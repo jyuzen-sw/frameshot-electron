@@ -42,8 +42,8 @@ export function CompositionCanvas({
 }: CompositionCanvasProps): React.JSX.Element {
   const layout = calculateCompositionLayout(settings);
   const frameStyle: CSSProperties = {
-    left: px(layout.frame.x),
-    top: px(layout.frame.y),
+    left: px(layout.frame.x - layout.artboard.x),
+    top: px(layout.frame.y - layout.artboard.y),
     width: px(layout.frame.width),
     height: px(layout.frame.height),
     borderRadius: px(layout.frame.radius),
@@ -194,19 +194,31 @@ export function CompositionCanvas({
   return (
     <div
       ref={canvasRef}
-      className={`composition-canvas ${backgroundClassName(settings.backgroundStyle)}`}
+      className="composition-canvas"
       style={{
         width: settings.outputWidth,
         height: settings.outputHeight,
-        ...backgroundCssProperties(settings),
         ...style,
       }}
       data-frame-style={settings.frameStyle}
     >
-      <span className="composition-glow glow-a" />
-      <span className="composition-glow glow-b" />
-      <span className="composition-grain" />
-      {frame}
+      <div
+        className={`composition-artboard ${backgroundClassName(settings.backgroundStyle)}`}
+        style={{
+          left: layout.artboard.x,
+          top: layout.artboard.y,
+          width: layout.artboard.width,
+          height: layout.artboard.height,
+          ...backgroundCssProperties(settings),
+        }}
+        data-artboard-width={layout.artboard.width}
+        data-artboard-height={layout.artboard.height}
+      >
+        <span className="composition-glow glow-a" />
+        <span className="composition-glow glow-b" />
+        <span className="composition-grain" />
+        {frame}
+      </div>
     </div>
   );
 }
