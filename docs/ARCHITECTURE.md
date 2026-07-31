@@ -8,7 +8,7 @@ FrameShotは、操作UI、対象ページ、出力処理を別々のWebContents�
 
 Reactで構築され、URL、viewportプリセット、出力設定、ライブキャンバスを担当します。ファイルシステムやElectron APIには直接アクセスせず、preloadが `contextBridge` で公開する限定的な `window.frameShot` APIだけを使用します。
 
-Desktop / Mobileのヘッダーリストは、デバイス種別と論理ビューポートだけを変更します。Customを選んだ場合に設定パネルを開き、ページ表示領域の幅入力へフォーカスします。Electronのネイティブアプリケーションメニューは無効化します。保存、URLフォーカス、再読み込みのショートカットは、Main Processが対象ページ側の入力も捕捉して操作UIへ中継するため、どちらにフォーカスがあっても動作します。
+Desktop / Mobileのヘッダーリストは、デバイス種別、フレーム、論理ビューポートをまとめて変更します。Customを選んだ場合に設定パネルを開き、ページ表示領域の幅入力へフォーカスします。設定パネルは設定ボタンまたはCustomから開く非永続のフローティング表示で、開閉してもworkspaceのレイアウト、キャンバス、ページ表示領域の座標と寸法を変えません。Electronのネイティブアプリケーションメニューは無効化します。保存、URLフォーカス、再読み込みのショートカットは、Main Processが対象ページ側の入力も捕捉して操作UIへ中継するため、どちらにフォーカスがあっても動作します。
 
 本番ビルドは `file://` ではなく `frameshot-app://app/` からbundle内のファイルだけを配信します。protocol handlerはhost、path、methodを検証してpath traversalを拒否し、index HTMLへ次の制約を含むCSPを付けます。
 
@@ -38,11 +38,21 @@ Rendererは `CompositionCanvas` を実際の出力寸法で構築し、CSS trans
 
 これにより、対象ページは本物のChromiumページとしてクリック、スクロール、入力できます。ブラウザバーやスマホベゼルはRenderer側の装飾です。
 
+ネイティブの `WebContentsView` はRendererのDOMより前面に描画されるため、設定パネルの表示中だけ対象ビューへ `visible: false` を送り、ライブページを一時的に隠します。DOM側の背景、フレーム、ページ表示領域とMain Processへ送る座標は変更しません。パネルを閉じると同じ `WebContentsView` を同じ座標へ再表示し、reloadや再生成を行わないため、URL、スクロール、入力、sessionの状態を維持します。
+
 ## 共通キャンバス
 
-ライブ表示と書き出しは、同じ `CompositionCanvas` コンポーネントと `styles.css` を使います。背景、グラデーション、glow、grain、Browser / Phone / Noneフレーム、余白、角丸、影、ページ領域のDOMは共通です。
+ライブ表示と書き出しは、同じ `CompositionCanvas` コンポーネントと `styles.css` を使います。背景、グラデーション、glow、grain、Browser / Phone / Tablet / Noneフレーム、余白、角丸、影、ページ領域のDOMは共通です。既定の最低余白は8pxで、DesktopのフレームとViewportにはそれぞれ8pxと6pxの角丸を適用します。Phone / Tablet固有の角丸は変更しません。
+
+背景は既存6種のlinear gradientに加え、Sea Glass Flow、Orchid Tide、Rosewater Ink、Apricot Lilacの4種を提供します。追加したFluid Gradient / Alcohol Ink風の背景は、淡いradial、conic、linear gradientをCSSで重ねて描画し、bitmap素材や外部リソースには依存しません。presetは色、角度、背景styleをまとめて適用し、ライブ表示とPNG書き出しで同じbackground descriptorを使います。
 
 違いはページ領域だけです。ライブ表示ではその位置に `WebContentsView` を重ね、非表示の書き出しRendererでは直前に取得したページPNGを `<img>` として配置します。ライブ表示用と出力用で別々のマークアップやCSSを保守しないため、表示差分が生じにくい構成です。
+
+## Renderer設定の永続化
+
+キャンバス設定は `localStorage` の `frameshot:settings:v3` へ保存します。v2データから読み込む場合、旧既定値と一致する `margin: 32` と `cornerRadius: 28` だけを新しい既定値8へ移行し、それ以外の利用者設定は保持します。旧v2データは削除しないため、旧版へ戻した場合も従来の設定を読み込めます。
+
+設定パネルの開閉状態は保存対象に含めず、Renderer起動時は常に閉じた状態にします。
 
 ## 対象sessionとOAuth
 

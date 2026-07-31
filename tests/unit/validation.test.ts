@@ -33,6 +33,21 @@ describe('capture settings validation', () => {
     ).toThrow('フレーム種別が不正です');
   });
 
+  it('accepts fluid backgrounds and rejects unknown background styles', () => {
+    expect(
+      validateCaptureSettings({
+        ...DEFAULT_SETTINGS,
+        backgroundStyle: 'fluid',
+      }).backgroundStyle,
+    ).toBe('fluid');
+    expect(() =>
+      validateCaptureSettings({
+        ...DEFAULT_SETTINGS,
+        backgroundStyle: 'mesh',
+      }),
+    ).toThrow('背景スタイルが不正です');
+  });
+
   it('rejects oversized output and malformed colors', () => {
     expect(() => validateCaptureSettings({ ...DEFAULT_SETTINGS, outputWidth: 9000 })).toThrow();
     expect(() => validateCaptureSettings({ ...DEFAULT_SETTINGS, gradientFrom: 'lavender' })).toThrow();

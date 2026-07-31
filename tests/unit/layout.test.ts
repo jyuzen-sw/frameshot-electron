@@ -1,15 +1,106 @@
 import { describe, expect, it } from 'vitest';
-import { calculateCompositionLayout, calculatePreviewCanvasSize } from '@shared/layout';
+import {
+  calculateCompositionLayout,
+  calculatePreviewCanvasSize,
+  roundRectangleEdges,
+} from '@shared/layout';
 import { DEFAULT_SETTINGS } from '@shared/presets';
 
 describe('calculateCompositionLayout', () => {
-  it('fits a browser frame within the output margin', () => {
+  it('uses the compact default margin and desktop corner radii', () => {
+    expect(DEFAULT_SETTINGS.margin).toBe(8);
+    expect(DEFAULT_SETTINGS.cornerRadius).toBe(8);
+
+    const browser = calculateCompositionLayout(DEFAULT_SETTINGS);
+
+    expect(browser.frame.radius).toBe(8);
+    expect(browser.screen.radius).toBe(6);
+  });
+
+  it('uses one clipping radius when no decorative frame exists', () => {
+    const layout = calculateCompositionLayout({
+      ...DEFAULT_SETTINGS,
+      frameStyle: 'none',
+    });
+
+    expect(layout.frame.radius).toBe(6);
+    expect(layout.screen.radius).toBe(6);
+  });
+
+  it.each([
+    {
+      name: 'landscape browser in a 16:9 output',
+      outputWidth: 1920,
+      outputHeight: 1080,
+      viewportWidth: 1440,
+      viewportHeight: 900,
+      frameStyle: 'browser' as const,
+      deviceMode: 'desktop' as const,
+    },
+    {
+      name: 'wide page in a square output',
+      outputWidth: 1200,
+      outputHeight: 1200,
+      viewportWidth: 1600,
+      viewportHeight: 900,
+      frameStyle: 'none' as const,
+      deviceMode: 'desktop' as const,
+    },
+    {
+      name: 'phone page in a portrait output',
+      outputWidth: 1080,
+      outputHeight: 1350,
+      viewportWidth: 390,
+      viewportHeight: 844,
+      frameStyle: 'phone' as const,
+      deviceMode: 'mobile' as const,
+    },
+    {
+      name: 'tablet page in a landscape output',
+      outputWidth: 1600,
+      outputHeight: 900,
+      viewportWidth: 768,
+      viewportHeight: 1024,
+      frameStyle: 'tablet' as const,
+      deviceMode: 'mobile' as const,
+    },
+  ])(
+    'centers the $name while preserving its ratio and minimum margin',
+    ({ name: _name, ...overrides }) => {
+      const settings = { ...DEFAULT_SETTINGS, ...overrides };
+      const layout = calculateCompositionLayout(settings);
+      const edges = {
+        left: layout.frame.x,
+        top: layout.frame.y,
+        right:
+          settings.outputWidth - layout.frame.x - layout.frame.width,
+        bottom:
+          settings.outputHeight - layout.frame.y - layout.frame.height,
+      };
+
+      expect(edges.left).toBeCloseTo(edges.right, 8);
+      expect(edges.top).toBeCloseTo(edges.bottom, 8);
+      expect(layout.screen.width / layout.screen.height).toBeCloseTo(
+        settings.viewportWidth / settings.viewportHeight,
+        8,
+      );
+      expect(layout.screen.width / settings.viewportWidth).toBeCloseTo(
+        layout.screen.height / settings.viewportHeight,
+        8,
+      );
+      for (const edge of Object.values(edges)) {
+        expect(edge).toBeGreaterThanOrEqual(settings.margin - 1e-8);
+      }
+      expect(Math.min(...Object.values(edges))).toBeCloseTo(
+        settings.margin,
+        8,
+      );
+    },
+  );
+
+  it('keeps the browser controls inside the fitted frame', () => {
     const layout = calculateCompositionLayout(DEFAULT_SETTINGS);
-    expect(layout.frame.x).toBeGreaterThanOrEqual(DEFAULT_SETTINGS.margin - 1);
-    expect(layout.frame.y).toBeGreaterThanOrEqual(DEFAULT_SETTINGS.margin - 1);
-    expect(layout.frame.x + layout.frame.width).toBeLessThanOrEqual(
-      DEFAULT_SETTINGS.outputWidth - DEFAULT_SETTINGS.margin + 1,
-    );
+
     expect(layout.browserBarHeight).toBeGreaterThan(0);
     expect(layout.browserAddressHeight).toBeCloseTo(
       layout.browserBarHeight * 0.56,
@@ -34,6 +125,21 @@ describe('calculateCompositionLayout', () => {
     expect(layout.screen.y).toBeGreaterThan(layout.frame.y);
     expect(layout.browserBarHeight).toBe(0);
     expect(layout.browserAddressHeight).toBe(0);
+    expect(layout.frame.radius / layout.scale).toBeCloseTo(54, 5);
+    expect(layout.screen.radius / layout.scale).toBeCloseTo(38, 5);
+  });
+
+  it('rounds opposing viewport edges without shifting the far edges', () => {
+    const bounds = roundRectangleEdges({
+      left: 10.4,
+      top: 20.4,
+      right: 110.6,
+      bottom: 220.6,
+    });
+
+    expect(bounds).toEqual({ x: 10, y: 20, width: 101, height: 201 });
+    expect(bounds.x + bounds.width).toBe(Math.round(110.6));
+    expect(bounds.y + bounds.height).toBe(Math.round(220.6));
   });
 
   it('adds uniform bezels and dedicated radii for a tablet frame', () => {

@@ -1,5 +1,12 @@
 import type { CaptureSettings, CompositionLayout } from './types';
 
+interface RectangleEdges {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
 const BROWSER_BAR = 58;
 const PHONE_LEFT = 24;
 const PHONE_RIGHT = 24;
@@ -14,6 +21,24 @@ const BROWSER_ADDRESS_HEIGHT_RATIO = 0.56;
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+export function roundRectangleEdges(rectangle: RectangleEdges): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
+  const left = Math.round(rectangle.left);
+  const top = Math.round(rectangle.top);
+  const right = Math.round(rectangle.right);
+  const bottom = Math.round(rectangle.bottom);
+  return {
+    x: left,
+    y: top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
+  };
 }
 
 export function calculateCompositionLayout(
@@ -60,20 +85,21 @@ export function calculateCompositionLayout(
   const screenWidth = viewportWidth * scale;
   const screenHeight = viewportHeight * scale;
 
+  const desktopScreenRadius = Math.max(0, settings.cornerRadius - 2);
   const frameRadius =
     settings.frameStyle === 'phone'
       ? PHONE_FRAME_RADIUS * scale
       : settings.frameStyle === 'tablet'
         ? TABLET_FRAME_RADIUS * scale
-        : settings.cornerRadius;
+        : settings.frameStyle === 'none'
+          ? desktopScreenRadius
+          : settings.cornerRadius;
   const screenRadius =
     settings.frameStyle === 'phone'
       ? PHONE_SCREEN_RADIUS * scale
       : settings.frameStyle === 'tablet'
         ? TABLET_SCREEN_RADIUS * scale
-        : settings.frameStyle === 'none'
-          ? settings.cornerRadius
-          : Math.max(0, settings.cornerRadius - 2);
+        : desktopScreenRadius;
 
   return {
     scale,

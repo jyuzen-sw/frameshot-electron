@@ -31,6 +31,7 @@ import {
 interface ToolbarProps {
   url: string;
   urlInputRef: RefObject<HTMLInputElement | null>;
+  settingsButtonRef: RefObject<HTMLButtonElement | null>;
   navigation: NavigationState;
   settings: CaptureSettings;
   busy: boolean;
@@ -200,6 +201,7 @@ export function ViewportMenuList({
 export function Toolbar({
   url,
   urlInputRef,
+  settingsButtonRef,
   navigation,
   settings,
   busy,
@@ -412,7 +414,9 @@ export function Toolbar({
         </div>
 
         <button
+          ref={settingsButtonRef}
           className={`toolbar-icon-action toolbar-settings-action ${settingsOpen ? 'active' : ''}`}
+          data-settings-trigger="true"
           type="button"
           aria-label={settingsOpen ? '詳細設定を閉じる' : '詳細設定を開く'}
           aria-expanded={settingsOpen}
