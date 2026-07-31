@@ -52,6 +52,9 @@ export const SparklesIcon = (props: IconProps) => (
 export const GlobeIcon = (props: IconProps) => (
   <IconBase {...props}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" /></IconBase>
 );
+export const LockIcon = (props: IconProps) => (
+  <IconBase {...props}><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></IconBase>
+);
 export const CheckIcon = (props: IconProps) => (
   <IconBase {...props}><path d="m5 12 4 4L19 6" /></IconBase>
 );

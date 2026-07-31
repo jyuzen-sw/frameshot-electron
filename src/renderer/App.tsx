@@ -23,17 +23,14 @@ import type {
 } from '@shared/types';
 import { getHostname } from '@shared/url';
 import { validateCaptureSettings } from '@shared/validation';
+import { AppHeader } from './components/AppHeader';
+import type { HeaderBusyAction } from './components/HeaderFeedback';
 import { LiveCanvas } from './components/LiveCanvas';
 import type { TargetSuspensionReason } from './components/CompositionCanvas';
 import { SettingsPanel } from './components/SettingsPanel';
-import { Toolbar } from './components/Toolbar';
-import {
-  AlertIcon,
-  CheckIcon,
-  SparklesIcon,
-  XIcon,
-} from './components/Icons';
 import { usePersistentState } from './hooks/usePersistentState';
+import { useTransientNotice } from './hooks/useTransientNotice';
+import './App.css';
 
 const SETTINGS_STORAGE_KEY = 'frameshot:settings:v4';
 const V3_SETTINGS_STORAGE_KEY = 'frameshot:settings:v3';
@@ -50,12 +47,6 @@ const EMPTY_NAVIGATION: NavigationState = {
 const EMPTY_PREFERENCES: UserPreferences = {
   allowedCertificateHosts: [],
 };
-
-type BusyAction = 'navigate' | 'export' | 'session' | null;
-type Notice = {
-  kind: 'success' | 'error' | 'info';
-  message: string;
-} | null;
 
 export type FloatingUiState =
   | { kind: 'settings' }
@@ -116,8 +107,10 @@ export function App(): React.JSX.Element {
     useState<NavigationState>(EMPTY_NAVIGATION);
   const [preferences, setPreferences] =
     useState<UserPreferences>(EMPTY_PREFERENCES);
-  const [busy, setBusy] = useState<BusyAction>(null);
-  const [notice, setNotice] = useState<Notice>(null);
+  const [busy, setBusy] = useState<HeaderBusyAction>(null);
+  const { notice, showNotice, dismissNotice } = useTransientNotice({
+    paused: busy !== null,
+  });
   const [floatingUi, setFloatingUi] = useState<FloatingUiState>(null);
   const [focusViewportRequest, setFocusViewportRequest] = useState(0);
   const settingsPanelOpen = floatingUi?.kind === 'settings';
@@ -185,19 +178,10 @@ export function App(): React.JSX.Element {
       .getPreferences()
       .then(setPreferences)
       .catch((error) => {
-        setNotice({ kind: 'error', message: errorMessage(error) });
+        showNotice({ kind: 'error', message: errorMessage(error) });
       });
     return removeNavigationListener;
-  }, [setUrlInput]);
-
-  useEffect(() => {
-    if (!notice) return;
-    const timeout = window.setTimeout(
-      () => setNotice(null),
-      notice.kind === 'error' ? 7000 : 3600,
-    );
-    return () => window.clearTimeout(timeout);
-  }, [notice]);
+  }, [setUrlInput, showNotice]);
 
   const currentHost = getHostname(navigation.url);
   const certificateAllowed = Boolean(
@@ -206,8 +190,8 @@ export function App(): React.JSX.Element {
   );
 
   const showError = useCallback((error: unknown) => {
-    setNotice({ kind: 'error', message: errorMessage(error) });
-  }, []);
+    showNotice({ kind: 'error', message: errorMessage(error) });
+  }, [showNotice]);
 
   const navigate = useCallback(async () => {
     if (!urlInput.trim() || busy) return;
@@ -240,7 +224,7 @@ export function App(): React.JSX.Element {
           destination,
         );
         if (!result.completed) return;
-        setNotice({
+        showNotice({
           kind: 'success',
           message:
             destination === 'clipboard'
@@ -253,18 +237,18 @@ export function App(): React.JSX.Element {
         setBusy(null);
       }
     },
-    [busy, navigation.url, settings, showError],
+    [busy, navigation.url, settings, showError, showNotice],
   );
 
   const selectViewportPreset = useCallback(
     (preset: ViewportPreset) => {
       setSettings((current) => applyViewportPreset(current, preset));
-      setNotice({
+      showNotice({
         kind: 'info',
         message: `${preset.name} ${preset.width} × ${preset.height} を適用しました。`,
       });
     },
-    [],
+    [showNotice],
   );
 
   const openCustomViewport = useCallback(
@@ -300,7 +284,7 @@ export function App(): React.JSX.Element {
         const nextAllowed =
           next.allowedCertificateHosts.includes(currentHost);
         setPreferences(next);
-        setNotice({
+        showNotice({
           kind: 'info',
           message:
             nextAllowed === certificateAllowed
@@ -315,7 +299,7 @@ export function App(): React.JSX.Element {
         setBusy(null);
       }
     },
-    [busy, certificateAllowed, currentHost, showError],
+    [busy, certificateAllowed, currentHost, showError, showNotice],
   );
 
   const resetSession = useCallback(async () => {
@@ -330,7 +314,7 @@ export function App(): React.JSX.Element {
     setBusy('session');
     try {
       await window.frameShot.resetSession();
-      setNotice({
+      showNotice({
         kind: 'success',
         message: '対象ページ用セッションを初期化しました。',
       });
@@ -339,7 +323,7 @@ export function App(): React.JSX.Element {
     } finally {
       setBusy(null);
     }
-  }, [busy, showError]);
+  }, [busy, showError, showNotice]);
 
   const runAppShortcut = useCallback(
     (shortcut: AppShortcut) => {
@@ -409,13 +393,14 @@ export function App(): React.JSX.Element {
 
   return (
     <div className="app-shell">
-      <Toolbar
+      <AppHeader
         url={urlInput}
         urlInputRef={urlInputRef}
         settingsButtonRef={settingsButtonRef}
         navigation={navigation}
         settings={settings}
-        busy={Boolean(busy)}
+        busy={busy}
+        notice={notice}
         settingsOpen={settingsPanelOpen}
         openViewportMenu={activeViewportMenu}
         onUrlChange={setUrlInput}
@@ -423,6 +408,8 @@ export function App(): React.JSX.Element {
         onBack={() => void window.frameShot.goBack()}
         onForward={() => void window.frameShot.goForward()}
         onReload={() => void window.frameShot.reload(false)}
+        onNavigationRetry={() => void window.frameShot.reload(true)}
+        onNoticeDismiss={dismissNotice}
         onViewportPreset={selectViewportPreset}
         onCustomViewport={openCustomViewport}
         onViewportMenuOpen={openViewportMenu}
@@ -442,22 +429,6 @@ export function App(): React.JSX.Element {
         }`}
       >
         <div className="studio-column">
-          {navigation.error && (
-            <div className="page-error-banner">
-              <AlertIcon />
-              <div>
-                <b>ページを表示できませんでした</b>
-                <span>{navigation.error}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => void window.frameShot.reload(true)}
-              >
-                キャッシュ無視で再試行
-              </button>
-            </div>
-          )}
-
           <LiveCanvas
             settings={settings}
             pageUrl={navigation.url}
@@ -490,37 +461,6 @@ export function App(): React.JSX.Element {
           />
         </div>
       </main>
-
-      {busy && (
-        <div className="busy-indicator" role="status">
-          <span />
-          {busy === 'export'
-            ? '最新のページから画像を書き出しています…'
-            : busy === 'navigate'
-              ? 'ページを開いています…'
-              : '処理しています…'}
-        </div>
-      )}
-
-      {notice && (
-        <div className={`toast-notice ${notice.kind}`} role="status">
-          {notice.kind === 'success' ? (
-            <CheckIcon />
-          ) : notice.kind === 'error' ? (
-            <AlertIcon />
-          ) : (
-            <SparklesIcon />
-          )}
-          <span>{notice.message}</span>
-          <button
-            type="button"
-            aria-label="閉じる"
-            onClick={() => setNotice(null)}
-          >
-            <XIcon />
-          </button>
-        </div>
-      )}
     </div>
   );
 }

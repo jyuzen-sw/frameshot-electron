@@ -20,6 +20,7 @@ import {
   CompositionCanvas,
   type TargetSuspensionReason,
 } from './CompositionCanvas';
+import './LiveCanvas.css';
 
 interface LiveCanvasProps {
   settings: CaptureSettings;

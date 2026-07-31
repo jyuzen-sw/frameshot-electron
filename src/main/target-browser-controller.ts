@@ -116,7 +116,7 @@ export class TargetBrowserController {
     };
     this.emitState();
     await this.view.webContents.loadURL(targetUrl);
-    this.refreshState();
+    this.refreshState(true);
     return this.navigationState;
   }
 
@@ -514,8 +514,13 @@ export class TargetBrowserController {
       this.emitState();
     });
     webContents.on('did-stop-loading', () => this.refreshState());
-    webContents.on('did-navigate', () => this.refreshState());
-    webContents.on('did-navigate-in-page', () => this.refreshState());
+    webContents.on('did-navigate', () => this.refreshState(true));
+    webContents.on(
+      'did-navigate-in-page',
+      (_event, _url, isMainFrame) => {
+        if (isMainFrame) this.refreshState(true);
+      },
+    );
     webContents.on('page-title-updated', () => this.refreshState());
     webContents.on(
       'did-fail-load',
@@ -697,7 +702,7 @@ export class TargetBrowserController {
     this.view.setVisible(true);
   }
 
-  private refreshState(): void {
+  private refreshState(clearError = false): void {
     const webContents = this.view.webContents;
     this.state = {
       url: webContents.getURL() || this.state.url,
@@ -705,7 +710,7 @@ export class TargetBrowserController {
       isLoading: webContents.isLoading(),
       canGoBack: webContents.navigationHistory.canGoBack(),
       canGoForward: webContents.navigationHistory.canGoForward(),
-      error: undefined,
+      error: clearError ? undefined : this.state.error,
     };
     this.emitState();
     if (this.currentLayout) {
