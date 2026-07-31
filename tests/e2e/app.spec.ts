@@ -457,6 +457,43 @@ function compositionViewportSamplePoints(
   ];
 }
 
+function compositionViewportCornerSamplePoints(
+  settings: CaptureSettings,
+): Array<{ x: number; y: number }> {
+  const { screen } = calculateCompositionLayout(settings);
+  const left = Math.ceil(screen.x);
+  const top = Math.ceil(screen.y);
+  const right = Math.ceil(screen.x + screen.width) - 1;
+  const bottom = Math.ceil(screen.y + screen.height) - 1;
+  const inset = 4;
+  return [
+    { x: left, y: top },
+    { x: left + inset, y: top + inset },
+    { x: right, y: top },
+    { x: right - inset, y: top + inset },
+    { x: left, y: bottom },
+    { x: left + inset, y: bottom - inset },
+    { x: right, y: bottom },
+    { x: right - inset, y: bottom - inset },
+  ];
+}
+
+function expectPixelDifferent(
+  actual: number[],
+  expected: readonly [number, number, number, number],
+): void {
+  expect(actual).toHaveLength(4);
+  expect(
+    Math.max(
+      ...expected
+        .slice(0, 3)
+        .map((channel, index) =>
+          Math.abs((actual[index] ?? -255) - channel),
+        ),
+    ),
+  ).toBeGreaterThan(24);
+}
+
 function compositionTabletBezelSamplePoint(
   settings: CaptureSettings,
 ): { x: number; y: number } {
@@ -944,6 +981,84 @@ interface TargetFixtureState {
   width: number;
 }
 
+interface UiRectangle {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+}
+
+interface StudioGeometry {
+  canvas: UiRectangle;
+  pageSlot: UiRectangle;
+  panel: UiRectangle;
+  preview: UiRectangle;
+  shell: UiRectangle;
+  workspace: UiRectangle;
+}
+
+async function readStudioGeometry(cdp: CdpPage): Promise<StudioGeometry> {
+  return cdp.evaluate<StudioGeometry>(`
+    (() => {
+      const rectangle = (selector) => {
+        const element = document.querySelector(selector);
+        if (!(element instanceof HTMLElement)) {
+          throw new Error('Studio element was not found: ' + selector);
+        }
+        const { x, y, width, height } = element.getBoundingClientRect();
+        return { x, y, width, height };
+      };
+      return {
+        canvas: rectangle('.composition-canvas'),
+        pageSlot: rectangle('.composition-page-slot'),
+        panel: rectangle('.settings-panel-slot'),
+        preview: rectangle('.composition-preview-frame'),
+        shell: rectangle('.canvas-shell'),
+        workspace: rectangle('.workspace'),
+      };
+    })()
+  `);
+}
+
+function expectRectangleToStayFixed(
+  before: UiRectangle,
+  after: UiRectangle,
+  tolerance: number,
+  label: string,
+): void {
+  for (const property of ['x', 'y', 'width', 'height'] as const) {
+    expect(
+      Math.abs(after[property] - before[property]),
+      `${label}.${property} moved from ${before[property]} to ${after[property]}`,
+    ).toBeLessThanOrEqual(tolerance);
+  }
+}
+
+function expectStudioCompositionToStayFixed(
+  before: StudioGeometry,
+  after: StudioGeometry,
+): void {
+  expectRectangleToStayFixed(before.shell, after.shell, 1, 'canvas-shell');
+  expectRectangleToStayFixed(
+    before.preview,
+    after.preview,
+    1,
+    'composition-preview-frame',
+  );
+  expectRectangleToStayFixed(
+    before.canvas,
+    after.canvas,
+    2,
+    'composition-canvas',
+  );
+  expectRectangleToStayFixed(
+    before.pageSlot,
+    after.pageSlot,
+    1,
+    'composition-page-slot',
+  );
+}
+
 async function readTargetFixtureState(cdp: CdpPage): Promise<TargetFixtureState> {
   return cdp.evaluate<TargetFixtureState>(`
     (() => {
@@ -1070,6 +1185,8 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       Math.abs(initialLayout.canvasHeight - initialLayout.previewHeight),
     ).toBeLessThanOrEqual(2);
 
+    const closedStudioGeometry = await readStudioGeometry(cdp);
+
     await cdp.evaluate(`
       document.querySelector('button[aria-controls="settings-panel"]')?.click()
     `);
@@ -1085,12 +1202,59 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     await expect
       .poll(
         () =>
-          cdp.evaluate<number>(
-            `document.querySelector('.composition-preview-frame')?.getBoundingClientRect().width ?? 0`,
-          ),
+          cdp.evaluate<boolean>(`
+            (() => {
+              const panel = document.querySelector('.settings-panel-slot');
+              return panel instanceof HTMLElement &&
+                panel.getAttribute('aria-hidden') === 'false' &&
+                !panel.inert &&
+                getComputedStyle(panel).visibility === 'visible';
+            })()
+          `),
         { timeout: 5_000 },
       )
-      .toBeLessThan(initialLayout.previewWidth);
+      .toBe(true);
+    const openStudioGeometry = await readStudioGeometry(cdp);
+    expectStudioCompositionToStayFixed(
+      closedStudioGeometry,
+      openStudioGeometry,
+    );
+    expect(openStudioGeometry.panel.x).toBeGreaterThanOrEqual(
+      openStudioGeometry.workspace.x,
+    );
+    expect(openStudioGeometry.panel.y).toBeGreaterThanOrEqual(
+      openStudioGeometry.workspace.y,
+    );
+    expect(
+      openStudioGeometry.panel.x + openStudioGeometry.panel.width,
+    ).toBeLessThanOrEqual(
+      openStudioGeometry.workspace.x + openStudioGeometry.workspace.width + 1,
+    );
+    expect(
+      openStudioGeometry.panel.y + openStudioGeometry.panel.height,
+    ).toBeLessThanOrEqual(
+      openStudioGeometry.workspace.y + openStudioGeometry.workspace.height + 1,
+    );
+    expect(
+      Math.min(
+        openStudioGeometry.panel.x + openStudioGeometry.panel.width,
+        openStudioGeometry.canvas.x + openStudioGeometry.canvas.width,
+      ) -
+        Math.max(
+          openStudioGeometry.panel.x,
+          openStudioGeometry.canvas.x,
+        ),
+    ).toBeGreaterThan(0);
+    expect(
+      Math.min(
+        openStudioGeometry.panel.y + openStudioGeometry.panel.height,
+        openStudioGeometry.canvas.y + openStudioGeometry.canvas.height,
+      ) -
+        Math.max(
+          openStudioGeometry.panel.y,
+          openStudioGeometry.canvas.y,
+        ),
+    ).toBeGreaterThan(0);
     await cdp.evaluate(`
       document.querySelector('.settings-close-button')?.click()
     `);
@@ -1103,6 +1267,21 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         { timeout: 5_000 },
       )
       .toBe(true);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.activeElement === document.querySelector(
+              'button[aria-controls="settings-panel"]',
+            )
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    expectStudioCompositionToStayFixed(
+      closedStudioGeometry,
+      await readStudioGeometry(cdp),
+    );
 
     await navigateFromMainUi(cdp, fixture.url);
     await waitForMainText(cdp, 'FrameShot fixture — WebGL2 ready');
@@ -1110,7 +1289,10 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       await waitForTargetPageEndpoint(app.browserEndpoint, fixture.url),
     );
     const targetPage = targetCdp;
-    expect(await readTargetFixtureState(targetPage)).toEqual({
+    const targetStateBeforeSettings = await readTargetFixtureState(
+      targetPage,
+    );
+    expect(targetStateBeforeSettings).toEqual({
       animationPlayState: 'running',
       height: 900,
       sentinelColor: 'rgb(22, 163, 74)',
@@ -1119,6 +1301,59 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       width: 1440,
     });
     logE2e('WebGL2 fixture is ready.');
+
+    const loadedStudioGeometry = await readStudioGeometry(cdp);
+    await cdp.evaluate(`
+      document.querySelector('button[aria-controls="settings-panel"]')?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const slot = document.querySelector('.composition-page-slot');
+              return slot instanceof HTMLElement &&
+                slot.classList.contains('is-suspended') &&
+                slot.textContent?.includes('設定を編集中') === true &&
+                slot.textContent?.includes(
+                  'ライブページは一時的に非表示です',
+                ) === true;
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    expectStudioCompositionToStayFixed(
+      loadedStudioGeometry,
+      await readStudioGeometry(cdp),
+    );
+    await cdp.evaluate(`
+      document.querySelector('.settings-close-button')?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const trigger = document.querySelector(
+                'button[aria-controls="settings-panel"]',
+              );
+              const slot = document.querySelector('.composition-page-slot');
+              return trigger?.getAttribute('aria-expanded') === 'false' &&
+                slot instanceof HTMLElement &&
+                !slot.classList.contains('is-suspended');
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await expect
+      .poll(() => readTargetFixtureState(targetPage), { timeout: 5_000 })
+      .toEqual(targetStateBeforeSettings);
+    expectStudioCompositionToStayFixed(
+      loadedStudioGeometry,
+      await readStudioGeometry(cdp),
+    );
 
     const addressCenterDelta = await cdp.evaluate<number>(`
       (() => {
@@ -1150,7 +1385,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     expect(exportActionsReady).toBe(true);
 
     const baselineSettings = await cdp.evaluate<Record<string, unknown>>(`
-      JSON.parse(localStorage.getItem('frameshot:settings:v2'))
+      JSON.parse(localStorage.getItem('frameshot:settings:v3'))
     `);
     await cdp.evaluate(`
       document.querySelector(
@@ -1187,7 +1422,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v2'),
+                localStorage.getItem('frameshot:settings:v3'),
               );
               return settings.deviceMode === 'mobile' &&
                 settings.viewportWidth === 412 &&
@@ -1198,7 +1433,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       )
       .toBe(true);
     const mobileSettings = await cdp.evaluate<Record<string, unknown>>(`
-      JSON.parse(localStorage.getItem('frameshot:settings:v2'))
+      JSON.parse(localStorage.getItem('frameshot:settings:v3'))
     `);
     expect(mobileSettings).toMatchObject({
       deviceMode: 'mobile',
@@ -1260,7 +1495,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v2'),
+                localStorage.getItem('frameshot:settings:v3'),
               );
               return settings.deviceMode === 'mobile' &&
                 settings.frameStyle === 'tablet' &&
@@ -1307,7 +1542,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v2'),
+                localStorage.getItem('frameshot:settings:v3'),
               );
               return settings.frameStyle === 'browser' &&
                 settings.viewportWidth === 1024 &&
@@ -1383,7 +1618,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v2'),
+                localStorage.getItem('frameshot:settings:v3'),
               );
               return settings.viewportWidth === 414 &&
                 settings.frameStyle === 'phone' &&
@@ -1431,7 +1666,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v2'),
+                localStorage.getItem('frameshot:settings:v3'),
               );
               return settings.deviceMode === 'desktop' &&
                 settings.viewportWidth === 1440 &&
@@ -1445,7 +1680,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       .toBe(true);
 
     const desktopSettings = await cdp.evaluate<CaptureSettings>(`
-      JSON.parse(localStorage.getItem('frameshot:settings:v2'))
+      JSON.parse(localStorage.getItem('frameshot:settings:v3'))
     `);
     expect(desktopSettings).toMatchObject({
       deviceMode: 'desktop',
@@ -1460,7 +1695,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       const clipboardError = await cdp.evaluate<string>(`
         (async () => {
           const settings = JSON.parse(
-            localStorage.getItem('frameshot:settings:v2'),
+            localStorage.getItem('frameshot:settings:v3'),
           );
           try {
             await window.frameShot.exportImage(settings, 'clipboard');
@@ -1488,7 +1723,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         const directExport = await cdp.evaluate<ExportResult>(`
           (async () => {
             const settings = JSON.parse(
-              localStorage.getItem('frameshot:settings:v2'),
+              localStorage.getItem('frameshot:settings:v3'),
             );
             return window.frameShot.exportImage(
               {
@@ -1521,6 +1756,23 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         );
         for (const [index, expectedPixel] of expectedDesktopPixels.entries()) {
           expectPixelNear(markerPixels[index] ?? [], expectedPixel);
+        }
+        const cornerPixels = await samplePngPixels(
+          cdp,
+          probe.pngPath,
+          compositionViewportCornerSamplePoints(desktopSettings),
+        );
+        for (const [index, expectedPixel] of expectedDesktopPixels
+          .slice(0, 4)
+          .entries()) {
+          expectPixelDifferent(
+            cornerPixels[index * 2] ?? [],
+            expectedPixel,
+          );
+          expectPixelNear(
+            cornerPixels[index * 2 + 1] ?? [],
+            expectedPixel,
+          );
         }
         await expect
           .poll(
@@ -1618,18 +1870,13 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         document.querySelector(
           'button[aria-controls="settings-panel"]',
         )?.click();
-        const input = document.querySelector(
-          'input[aria-label="背景色 カラー1"]',
+        const preset = document.querySelector(
+          '.gradient-swatch[title="Sea Glass Flow"]',
         );
-        if (!(input instanceof HTMLInputElement)) {
-          throw new Error('The background color input was not found.');
+        if (!(preset instanceof HTMLButtonElement)) {
+          throw new Error('The Sea Glass Flow preset was not found.');
         }
-        const setter = Object.getOwnPropertyDescriptor(
-          HTMLInputElement.prototype,
-          'value',
-        )?.set;
-        setter?.call(input, '#d7eadf');
-        input.dispatchEvent(new Event('input', { bubbles: true }));
+        preset.click();
       })()
     `);
     await expect
@@ -1639,16 +1886,27 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
             (() => {
               const canvas = document.querySelector('.composition-canvas');
               const glow = document.querySelector('.composition-glow');
+              const preset = document.querySelector(
+                '.gradient-swatch[title="Sea Glass Flow"]',
+              );
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v2'),
+                localStorage.getItem('frameshot:settings:v3'),
               );
               return canvas instanceof HTMLElement &&
                 glow instanceof HTMLElement &&
-                settings.gradientFrom === '#d7eadf' &&
-                getComputedStyle(canvas).backgroundImage.includes(
-                  'rgb(215, 234, 223)',
-                ) &&
-                getComputedStyle(glow).opacity === '0.62';
+                preset instanceof HTMLButtonElement &&
+                settings.gradientFrom === '#d9f2ec' &&
+                settings.gradientTo === '#dce7fb' &&
+                settings.gradientAngle === 128 &&
+                settings.backgroundStyle === 'fluid' &&
+                canvas.classList.contains('background-fluid') &&
+                preset.classList.contains('background-fluid') &&
+                preset.classList.contains('active') &&
+                document.querySelectorAll('.gradient-swatch.active').length === 1 &&
+                (getComputedStyle(canvas).backgroundImage.match(
+                  /gradient\\(/g,
+                )?.length ?? 0) >= 5 &&
+                getComputedStyle(glow).opacity === '0.28';
             })()
           `),
         { timeout: 5_000 },
@@ -1760,7 +2018,8 @@ test('keeps target cookies only for the current app process', async () => {
     logE2e('Reused session state was confirmed within the current process.');
 
     await app.cdp.evaluate(`
-      document.querySelector('button[aria-controls="settings-panel"]')?.click()
+      localStorage.setItem('frameshot:settings-panel-open', 'true');
+      document.querySelector('button[aria-controls="settings-panel"]')?.click();
     `);
     await expect
       .poll(
@@ -1782,7 +2041,17 @@ test('keeps target cookies only for the current app process', async () => {
     logE2e('Packaged application restart completed.');
     expect(
       await app.cdp.evaluate<boolean>(
-        `document.querySelector('button[aria-controls="settings-panel"]')?.getAttribute('aria-expanded') === 'true'`,
+        `(() => {
+          const trigger = document.querySelector(
+            'button[aria-controls="settings-panel"]',
+          );
+          const panel = document.querySelector('.settings-panel-slot');
+          return localStorage.getItem('frameshot:settings-panel-open') === 'true' &&
+            trigger?.getAttribute('aria-expanded') === 'false' &&
+            panel instanceof HTMLElement &&
+            panel.getAttribute('aria-hidden') === 'true' &&
+            panel.inert;
+        })()`,
       ),
     ).toBe(true);
     await navigateFromMainUi(app.cdp, `${sessionUrl}?visit=restart`);
@@ -1826,7 +2095,7 @@ test('closes the application window without main process errors', async () => {
     await app.cdp.evaluate(`
       (() => {
         const settings = {
-          ...JSON.parse(localStorage.getItem('frameshot:settings:v2')),
+          ...JSON.parse(localStorage.getItem('frameshot:settings:v3')),
           captureScale: 2,
           pauseAnimations: true,
           waitMs: 5000,

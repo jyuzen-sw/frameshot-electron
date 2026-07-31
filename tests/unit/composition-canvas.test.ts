@@ -5,6 +5,12 @@ import { calculateCompositionLayout } from '@shared/layout';
 import { DEFAULT_SETTINGS } from '@shared/presets';
 import { CompositionCanvas } from '../../src/renderer/components/CompositionCanvas';
 
+function canvasOpeningTag(markup: string): string {
+  const tag = markup.match(/<div class="composition-canvas[^>]*>/)?.[0];
+  if (!tag) throw new Error('Composition canvas was not rendered.');
+  return tag;
+}
+
 describe('CompositionCanvas', () => {
   it('uses the same browser-frame markup for live and image slots', () => {
     const live = renderToStaticMarkup(
@@ -34,6 +40,56 @@ describe('CompositionCanvas', () => {
     expect(live).not.toContain('id="page-image"');
     expect(image).toContain('data-slot-mode="image"');
     expect(image).toContain('id="page-image"');
+  });
+
+  it('uses the same fluid background for live preview and exported image', () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      gradientFrom: '#d9f2ec',
+      gradientTo: '#dce7fb',
+      gradientAngle: 128,
+      backgroundStyle: 'fluid' as const,
+    };
+    const live = renderToStaticMarkup(
+      createElement(CompositionCanvas, {
+        settings,
+        pageUrl: 'https://example.com/dashboard',
+        slotMode: 'live',
+      }),
+    );
+    const image = renderToStaticMarkup(
+      createElement(CompositionCanvas, {
+        settings,
+        pageUrl: 'https://example.com/dashboard',
+        slotMode: 'image',
+        pageImageUrl:
+          'frameshot-export://capture/00000000-0000-4000-8000-000000000000/page.png',
+      }),
+    );
+
+    expect(canvasOpeningTag(live)).toBe(canvasOpeningTag(image));
+    expect(canvasOpeningTag(live)).toContain(
+      'class="composition-canvas background-fluid"',
+    );
+    expect(canvasOpeningTag(live)).toContain('--background-angle:128deg');
+    expect(canvasOpeningTag(live)).toContain('--background-from:#d9f2ec');
+    expect(canvasOpeningTag(live)).toContain('--background-to:#dce7fb');
+  });
+
+  it('shows a dedicated placeholder while the live page is suspended', () => {
+    const markup = renderToStaticMarkup(
+      createElement(CompositionCanvas, {
+        settings: DEFAULT_SETTINGS,
+        pageUrl: 'https://example.com/dashboard',
+        pageSuspended: true,
+        slotMode: 'live',
+      }),
+    );
+
+    expect(markup).toContain('is-suspended');
+    expect(markup).toContain('設定を編集中');
+    expect(markup).toContain('ライブページは一時的に非表示です');
+    expect(markup).not.toContain('target-loading-placeholder');
   });
 
   it('uses shared layout values for the browser address', () => {

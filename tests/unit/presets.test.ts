@@ -6,12 +6,15 @@ import {
   applyCustomViewportMode,
   applyViewportPreset,
   findViewportPreset,
+  migrateV2Settings,
   viewportPresetsFor,
 } from '@shared/presets';
 
 describe('built-in presets', () => {
-  it('uses the darker natural mint gradient by default', () => {
+  it('uses the compact frame spacing and natural mint background by default', () => {
     expect(DEFAULT_SETTINGS).toMatchObject({
+      margin: 8,
+      cornerRadius: 8,
       gradientFrom: '#e3f2e8',
       gradientTo: '#ebf5ed',
       gradientAngle: 135,
@@ -19,18 +22,119 @@ describe('built-in presets', () => {
     });
   });
 
-  it('uses the adjusted color pair for every gradient preset', () => {
-    expect(
-      GRADIENT_PRESETS.map(({ id, from, to }) => ({ id, from, to })),
-    ).toEqual([
-      { id: 'mint-pearl', from: '#e3f2e8', to: '#ebf5ed' },
-      { id: 'lavender-mint', from: '#e1e7f9', to: '#ddf7f8' },
-      { id: 'blush-cream', from: '#f8e3ee', to: '#f9f3dc' },
-      { id: 'sky-lilac', from: '#d2e9f9', to: '#e7d7f9' },
-      { id: 'warm-paper', from: '#f9ecdc', to: '#f8f5d8' },
-      { id: 'quiet-gray', from: '#e4ebf1', to: '#ebf0f5' },
+  it('provides six soft backgrounds and four fluid backgrounds', () => {
+    expect(GRADIENT_PRESETS).toEqual([
+      {
+        id: 'mint-pearl',
+        name: 'Mint Pearl',
+        from: '#e3f2e8',
+        to: '#ebf5ed',
+        angle: 135,
+        backgroundStyle: 'soft',
+      },
+      {
+        id: 'lavender-mint',
+        name: 'Lavender Mint',
+        from: '#e1e7f9',
+        to: '#ddf7f8',
+        angle: 135,
+        backgroundStyle: 'soft',
+      },
+      {
+        id: 'blush-cream',
+        name: 'Blush Cream',
+        from: '#f8e3ee',
+        to: '#f9f3dc',
+        angle: 145,
+        backgroundStyle: 'soft',
+      },
+      {
+        id: 'sky-lilac',
+        name: 'Sky Lilac',
+        from: '#d2e9f9',
+        to: '#e7d7f9',
+        angle: 125,
+        backgroundStyle: 'soft',
+      },
+      {
+        id: 'warm-paper',
+        name: 'Warm Paper',
+        from: '#f9ecdc',
+        to: '#f8f5d8',
+        angle: 150,
+        backgroundStyle: 'soft',
+      },
+      {
+        id: 'quiet-gray',
+        name: 'Quiet Gray',
+        from: '#e4ebf1',
+        to: '#ebf0f5',
+        angle: 135,
+        backgroundStyle: 'soft',
+      },
+      {
+        id: 'sea-glass-flow',
+        name: 'Sea Glass Flow',
+        from: '#d9f2ec',
+        to: '#dce7fb',
+        angle: 128,
+        backgroundStyle: 'fluid',
+      },
+      {
+        id: 'orchid-tide',
+        name: 'Orchid Tide',
+        from: '#eadcf7',
+        to: '#d9edf5',
+        angle: 118,
+        backgroundStyle: 'fluid',
+      },
+      {
+        id: 'rosewater-ink',
+        name: 'Rosewater Ink',
+        from: '#f6dde8',
+        to: '#f5e8d7',
+        angle: 148,
+        backgroundStyle: 'fluid',
+      },
+      {
+        id: 'apricot-lilac',
+        name: 'Apricot Lilac',
+        from: '#f7e0cf',
+        to: '#e6ddf6',
+        angle: 155,
+        backgroundStyle: 'fluid',
+      },
     ]);
   });
+
+  it('uses a unique identifier for every background preset', () => {
+    const ids = GRADIENT_PRESETS.map((preset) => preset.id);
+
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it.each([
+    { margin: 32, cornerRadius: 28, nextMargin: 8, nextRadius: 8 },
+    { margin: 32, cornerRadius: 12, nextMargin: 8, nextRadius: 12 },
+    { margin: 12, cornerRadius: 28, nextMargin: 12, nextRadius: 8 },
+    { margin: 31, cornerRadius: 27, nextMargin: 31, nextRadius: 27 },
+  ])(
+    'migrates only legacy defaults from margin $margin and radius $cornerRadius',
+    ({ margin, cornerRadius, nextMargin, nextRadius }) => {
+      const previous = {
+        ...DEFAULT_SETTINGS,
+        margin,
+        cornerRadius,
+        gradientAngle: 212,
+      };
+
+      expect(migrateV2Settings(previous)).toEqual({
+        ...previous,
+        margin: nextMargin,
+        cornerRadius: nextRadius,
+      });
+    },
+  );
 
   it('provides the approved desktop, phone, and iPad viewport lists', () => {
     expect(
