@@ -104,4 +104,36 @@ describe('captureWithRestoration', () => {
     expect(restore).toHaveBeenCalledTimes(1);
     expect(layout).toBe('interactive');
   });
+
+  it('reports a restoration failure after a successful capture', async () => {
+    const restoreError = new Error('restore failed');
+    const restore = vi.fn(async () => {
+      throw restoreError;
+    });
+
+    await expect(
+      captureWithRestoration({
+        capture: async () => 'image',
+        restore,
+      }),
+    ).rejects.toBe(restoreError);
+    expect(restore).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the capture failure when restoration also fails', async () => {
+    const captureError = new Error('capture failed');
+    const restore = vi.fn(async () => {
+      throw new Error('restore failed');
+    });
+
+    await expect(
+      captureWithRestoration({
+        capture: async () => {
+          throw captureError;
+        },
+        restore,
+      }),
+    ).rejects.toBe(captureError);
+    expect(restore).toHaveBeenCalledTimes(1);
+  });
 });

@@ -41,10 +41,18 @@ function imageSizeDescription(image: CapturedPageImage): string {
 export async function captureWithRestoration<TResult>(
   adapter: RestorablePageCaptureAdapter<TResult>,
 ): Promise<TResult> {
+  let captureSucceeded = false;
   try {
-    return await adapter.capture();
+    const result = await adapter.capture();
+    captureSucceeded = true;
+    return result;
   } finally {
-    await adapter.restore();
+    try {
+      await adapter.restore();
+    } catch (restoreError) {
+      if (captureSucceeded) throw restoreError;
+      // Keep the capture failure that is already propagating.
+    }
   }
 }
 
