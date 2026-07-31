@@ -85,18 +85,21 @@ export function calculateCompositionLayout(
   const screenWidth = viewportWidth * scale;
   const screenHeight = viewportHeight * scale;
 
+  const desktopScreenRadius = Math.max(0, settings.cornerRadius - 2);
   const frameRadius =
     settings.frameStyle === 'phone'
       ? PHONE_FRAME_RADIUS * scale
       : settings.frameStyle === 'tablet'
         ? TABLET_FRAME_RADIUS * scale
-        : settings.cornerRadius;
+        : settings.frameStyle === 'none'
+          ? desktopScreenRadius
+          : settings.cornerRadius;
   const screenRadius =
     settings.frameStyle === 'phone'
       ? PHONE_SCREEN_RADIUS * scale
       : settings.frameStyle === 'tablet'
         ? TABLET_SCREEN_RADIUS * scale
-        : Math.max(0, settings.cornerRadius - 2);
+        : desktopScreenRadius;
 
   return {
     scale,

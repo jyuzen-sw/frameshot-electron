@@ -11,15 +11,20 @@ describe('calculateCompositionLayout', () => {
     expect(DEFAULT_SETTINGS.margin).toBe(8);
     expect(DEFAULT_SETTINGS.cornerRadius).toBe(8);
 
-    for (const frameStyle of ['browser', 'none'] as const) {
-      const layout = calculateCompositionLayout({
-        ...DEFAULT_SETTINGS,
-        frameStyle,
-      });
+    const browser = calculateCompositionLayout(DEFAULT_SETTINGS);
 
-      expect(layout.frame.radius).toBe(8);
-      expect(layout.screen.radius).toBe(6);
-    }
+    expect(browser.frame.radius).toBe(8);
+    expect(browser.screen.radius).toBe(6);
+  });
+
+  it('uses one clipping radius when no decorative frame exists', () => {
+    const layout = calculateCompositionLayout({
+      ...DEFAULT_SETTINGS,
+      frameStyle: 'none',
+    });
+
+    expect(layout.frame.radius).toBe(6);
+    expect(layout.screen.radius).toBe(6);
   });
 
   it.each([
