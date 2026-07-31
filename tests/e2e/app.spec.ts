@@ -30,6 +30,19 @@ interface ClipboardProbe {
   width: number;
 }
 
+interface FixtureRequest {
+  cacheControl: string;
+  pragma: string;
+  url: string;
+}
+
+interface FixtureServer {
+  failedPaths: Set<string>;
+  requests: FixtureRequest[];
+  server: Server;
+  url: string;
+}
+
 interface CdpResponse {
   id?: number;
   result?: {
@@ -183,6 +196,19 @@ class CdpPage {
       code: input.code,
       windowsVirtualKeyCode: input.windowsVirtualKeyCode,
     });
+  }
+
+  public async setViewport(width: number, height: number): Promise<void> {
+    await this.send('Emulation.setDeviceMetricsOverride', {
+      width,
+      height,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+  }
+
+  public async clearViewport(): Promise<void> {
+    await this.send('Emulation.clearDeviceMetricsOverride');
   }
 
   public close(): void {
@@ -900,9 +926,27 @@ async function cleanupScenario(
   );
 }
 
-async function startFixtureServer(): Promise<{ server: Server; url: string }> {
+async function startFixtureServer(): Promise<FixtureServer> {
   logE2e('Starting the local fixture server.');
+  const failedPaths = new Set<string>();
+  const requests: FixtureRequest[] = [];
   const server = createServer((request, response) => {
+    const cacheControl = request.headers['cache-control'];
+    const pragma = request.headers.pragma;
+    requests.push({
+      cacheControl: Array.isArray(cacheControl)
+        ? cacheControl.join(', ')
+        : (cacheControl ?? ''),
+      pragma: Array.isArray(pragma) ? pragma.join(', ') : (pragma ?? ''),
+      url: request.url ?? '',
+    });
+    const bypassesCache = /(?:^|[,\s])no-cache(?:$|[,\s])/i.test(
+      `${cacheControl ?? ''},${pragma ?? ''}`,
+    );
+    if (failedPaths.has(request.url ?? '') && !bypassesCache) {
+      request.socket.destroy();
+      return;
+    }
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     if (request.url?.startsWith('/session')) {
       response.end(`<!doctype html>
@@ -980,7 +1024,12 @@ async function startFixtureServer(): Promise<{ server: Server; url: string }> {
     throw new Error('Fixture server failed to start.');
   }
   logE2e('Local fixture server is listening.');
-  return { server, url: `http://127.0.0.1:${address.port}` };
+  return {
+    failedPaths,
+    requests,
+    server,
+    url: `http://127.0.0.1:${address.port}`,
+  };
 }
 
 async function waitForMainUi(cdp: CdpPage): Promise<void> {
@@ -1051,6 +1100,22 @@ interface UiRectangle {
   y: number;
 }
 
+interface HeaderFeedbackGeometry {
+  feedback: UiRectangle;
+  header: UiRectangle;
+  kind: string;
+  pageSlot: UiRectangle;
+}
+
+interface HeaderViewportGeometry {
+  childOverflowing: boolean;
+  headerHeight: number;
+  headerOverflowing: boolean;
+  viewportHeight: number;
+  viewportWidth: number;
+  workspaceY: number;
+}
+
 interface StudioGeometry {
   artboard: UiRectangle;
   canvas: UiRectangle;
@@ -1087,6 +1152,155 @@ async function readStudioGeometry(cdp: CdpPage): Promise<StudioGeometry> {
       };
     })()
   `);
+}
+
+async function readHeaderFeedbackGeometry(
+  cdp: CdpPage,
+): Promise<HeaderFeedbackGeometry> {
+  return cdp.evaluate<HeaderFeedbackGeometry>(`
+    (() => {
+      const rectangle = (selector) => {
+        const element = document.querySelector(selector);
+        if (!(element instanceof HTMLElement)) {
+          throw new Error('Header feedback element was not found: ' + selector);
+        }
+        const { x, y, width, height } = element.getBoundingClientRect();
+        return { x, y, width, height };
+      };
+      const feedback = document.querySelector('.header-feedback');
+      if (!(feedback instanceof HTMLElement)) {
+        throw new Error('Header feedback was not found.');
+      }
+      return {
+        feedback: rectangle('.header-feedback'),
+        header: rectangle('.app-header'),
+        kind: feedback.dataset.feedbackKind ?? '',
+        pageSlot: rectangle('.composition-page-slot'),
+      };
+    })()
+  `);
+}
+
+async function installHeaderFeedbackHistory(cdp: CdpPage): Promise<void> {
+  await cdp.evaluate(`
+    (() => {
+      const feedback = document.querySelector('.header-feedback');
+      const header = document.querySelector('.app-header');
+      const pageSlot = document.querySelector('.composition-page-slot');
+      if (
+        !(feedback instanceof HTMLElement) ||
+        !(header instanceof HTMLElement) ||
+        !(pageSlot instanceof HTMLElement)
+      ) {
+        throw new Error('Header feedback history probes were not found.');
+      }
+      window.__frameshotFeedbackObserver?.disconnect();
+      window.__frameshotFeedbackHistory = [];
+      const rectangle = (element) => {
+        const { x, y, width, height } = element.getBoundingClientRect();
+        return { x, y, width, height };
+      };
+      const record = () => {
+        window.__frameshotFeedbackHistory.push({
+          feedback: rectangle(feedback),
+          header: rectangle(header),
+          kind: feedback.dataset.feedbackKind ?? '',
+          pageSlot: rectangle(pageSlot),
+        });
+      };
+      record();
+      const observer = new MutationObserver(record);
+      observer.observe(feedback, {
+        attributes: true,
+        attributeFilter: ['data-feedback-kind'],
+      });
+      window.__frameshotFeedbackObserver = observer;
+    })()
+  `);
+}
+
+async function takeHeaderFeedbackHistory(
+  cdp: CdpPage,
+): Promise<HeaderFeedbackGeometry[]> {
+  return cdp.evaluate<HeaderFeedbackGeometry[]>(`
+    (() => {
+      window.__frameshotFeedbackObserver?.disconnect();
+      const history = window.__frameshotFeedbackHistory ?? [];
+      delete window.__frameshotFeedbackObserver;
+      delete window.__frameshotFeedbackHistory;
+      return history;
+    })()
+  `);
+}
+
+async function readHeaderViewportGeometry(
+  cdp: CdpPage,
+): Promise<HeaderViewportGeometry> {
+  return cdp.evaluate<HeaderViewportGeometry>(`
+    (() => {
+      const header = document.querySelector('.app-header');
+      const workspace = document.querySelector('.workspace');
+      if (!(header instanceof HTMLElement) || !(workspace instanceof HTMLElement)) {
+        throw new Error('Responsive header probes were not found.');
+      }
+      const headerRect = header.getBoundingClientRect();
+      const childOverflowing = Array.from(header.children).some((child) => {
+        if (!(child instanceof HTMLElement)) return false;
+        const rect = child.getBoundingClientRect();
+        return rect.left < headerRect.left - 1 ||
+          rect.top < headerRect.top - 1 ||
+          rect.right > headerRect.right + 1 ||
+          rect.bottom > headerRect.bottom + 1;
+      });
+      return {
+        childOverflowing,
+        headerHeight: headerRect.height,
+        headerOverflowing:
+          header.scrollWidth > header.clientWidth ||
+          header.scrollHeight > header.clientHeight,
+        viewportHeight: innerHeight,
+        viewportWidth: innerWidth,
+        workspaceY: workspace.getBoundingClientRect().y,
+      };
+    })()
+  `);
+}
+
+function expectFeedbackInsideHeader(
+  geometry: HeaderFeedbackGeometry,
+  expectedKind: HeaderFeedbackGeometry['kind'],
+): void {
+  expect(geometry.kind).toBe(expectedKind);
+  expect(geometry.feedback.x).toBeGreaterThanOrEqual(geometry.header.x);
+  expect(geometry.feedback.y).toBeGreaterThanOrEqual(geometry.header.y);
+  expect(
+    geometry.feedback.x + geometry.feedback.width,
+  ).toBeLessThanOrEqual(geometry.header.x + geometry.header.width + 1);
+  expect(
+    geometry.feedback.y + geometry.feedback.height,
+  ).toBeLessThanOrEqual(geometry.header.y + geometry.header.height + 1);
+  expect(
+    geometry.feedback.y + geometry.feedback.height,
+  ).toBeLessThanOrEqual(geometry.pageSlot.y);
+}
+
+async function expectHeaderAtViewport(
+  cdp: CdpPage,
+  width: number,
+  height: number,
+): Promise<void> {
+  await cdp.setViewport(width, height);
+  await expect
+    .poll(() => readHeaderViewportGeometry(cdp), { timeout: 5_000 })
+    .toMatchObject({
+      viewportHeight: height,
+      viewportWidth: width,
+    });
+  const geometry = await readHeaderViewportGeometry(cdp);
+  expect(geometry.headerHeight).toBe(64);
+  expect(geometry.headerOverflowing).toBe(false);
+  expect(geometry.childOverflowing).toBe(false);
+  expect(geometry.headerHeight).toBe(geometry.workspaceY);
 }
 
 async function expectPreviewArtboard(
@@ -1257,29 +1471,39 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       canvasWidth: number;
       liveSlot: boolean;
       legacyActionsExist: boolean;
+      headerHeight: number;
+      headerOverflowing: boolean;
+      headerY: number;
       previewHeight: number;
       previewWidth: number;
       shellHeight: number;
       shellWidth: number;
+      workspaceY: number;
     }>(`
       (() => {
         const settingsButton = document.querySelector(
           'button[aria-controls="settings-panel"]',
         );
         const settingsSlot = document.querySelector('.settings-panel-slot');
+        const header = document.querySelector('.app-header');
         const shell = document.querySelector('.canvas-shell');
+        const workspace = document.querySelector('.workspace');
         const preview = document.querySelector('.composition-preview-frame');
         const canvas = document.querySelector('.composition-canvas');
         if (
           !(settingsButton instanceof HTMLButtonElement) ||
           !(settingsSlot instanceof HTMLElement) ||
+          !(header instanceof HTMLElement) ||
           !(shell instanceof HTMLElement) ||
+          !(workspace instanceof HTMLElement) ||
           !(preview instanceof HTMLElement) ||
           !(canvas instanceof HTMLElement)
         ) {
           throw new Error('The initial studio layout is incomplete.');
         }
         const shellRect = shell.getBoundingClientRect();
+        const headerRect = header.getBoundingClientRect();
+        const workspaceRect = workspace.getBoundingClientRect();
         const previewRect = preview.getBoundingClientRect();
         const canvasRect = canvas.getBoundingClientRect();
         const legacyLabels = new Set(['撮影', '再撮影', '再合成']);
@@ -1301,10 +1525,16 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           legacyActionsExist: Array.from(
             document.querySelectorAll('button'),
           ).some((button) => legacyLabels.has(button.textContent?.trim() ?? '')),
+          headerHeight: headerRect.height,
+          headerOverflowing:
+            header.scrollWidth > header.clientWidth ||
+            header.scrollHeight > header.clientHeight,
+          headerY: headerRect.y,
           previewHeight: previewRect.height,
           previewWidth: previewRect.width,
           shellHeight: shellRect.height,
           shellWidth: shellRect.width,
+          workspaceY: workspaceRect.y,
         };
       })()
     `);
@@ -1315,6 +1545,11 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     expect(initialLayout.settingsHidden).toBe(true);
     expect(initialLayout.liveSlot).toBe(true);
     expect(initialLayout.legacyActionsExist).toBe(false);
+    expect(initialLayout.headerHeight).toBe(64);
+    expect(initialLayout.headerOverflowing).toBe(false);
+    expect(initialLayout.headerY + initialLayout.headerHeight).toBe(
+      initialLayout.workspaceY,
+    );
     expect(initialLayout.previewWidth).toBeLessThanOrEqual(
       initialLayout.shellWidth + 1,
     );
@@ -1333,6 +1568,21 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     expect(
       Math.abs(initialLayout.canvasHeight - initialLayout.previewHeight),
     ).toBeLessThanOrEqual(2);
+
+    const originalViewport = await cdp.evaluate<{
+      height: number;
+      width: number;
+    }>(`({ height: innerHeight, width: innerWidth })`);
+    for (const width of [1261, 1260, 1121, 1120, 1040]) {
+      await expectHeaderAtViewport(cdp, width, 700);
+    }
+    await cdp.clearViewport();
+    await expect
+      .poll(() => readHeaderViewportGeometry(cdp), { timeout: 5_000 })
+      .toMatchObject({
+        viewportHeight: originalViewport.height,
+        viewportWidth: originalViewport.width,
+      });
 
     const closedStudioGeometry = await readStudioGeometry(cdp);
     expect(
@@ -1476,6 +1726,83 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     });
     logE2e('WebGL2 fixture is ready.');
 
+    const retryablePath = '/retryable';
+    fixture.failedPaths.add(retryablePath);
+    fixture.requests.length = 0;
+    await targetPage.evaluate(`
+      (() => {
+        const failingLink = document.createElement('a');
+        failingLink.href = ${JSON.stringify(`${fixture.url}/retryable`)};
+        failingLink.textContent = 'Retryable navigation';
+        document.body.append(failingLink);
+        failingLink.click();
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<string>(`
+            document.querySelector('.header-feedback')?.getAttribute(
+              'data-feedback-kind',
+            ) ?? ''
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe('navigation-error');
+    expectFeedbackInsideHeader(
+      await readHeaderFeedbackGeometry(cdp),
+      'navigation-error',
+    );
+    const requestCountBeforeRetry = fixture.requests.filter(
+      (request) => request.url === retryablePath,
+    ).length;
+    await cdp.evaluate(`
+      (() => {
+        const retry = document.querySelector(
+          '.header-feedback-action[aria-label="キャッシュ無視で再試行"]',
+        );
+        if (!(retry instanceof HTMLButtonElement)) {
+          throw new Error('The navigation retry action was not found.');
+        }
+        retry.click();
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          fixture.requests.filter(
+            (request) => request.url === retryablePath,
+          ).length,
+        { timeout: 5_000 },
+      )
+      .toBeGreaterThan(requestCountBeforeRetry);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<string>(`
+            document.querySelector('.header-feedback')?.getAttribute(
+              'data-feedback-kind',
+            ) ?? ''
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe('brand');
+    const retryRequest = fixture.requests
+      .filter((request) => request.url === retryablePath)
+      .at(-1);
+    expect(
+      `${retryRequest?.cacheControl ?? ''},${retryRequest?.pragma ?? ''}`,
+    ).toMatch(/(?:^|[,\s])no-cache(?:$|[,\s])/i);
+    await expect
+      .poll(
+        () => targetPage.evaluate<string>('location.pathname'),
+        { timeout: 5_000 },
+      )
+      .toBe(retryablePath);
+    await expect
+      .poll(() => readTargetFixtureState(targetPage), { timeout: 5_000 })
+      .toEqual(targetStateBeforeSettings);
+
     const loadedStudioGeometry = await readStudioGeometry(cdp);
     await cdp.evaluate(`
       document.querySelector('button[aria-controls="settings-panel"]')?.click()
@@ -1529,7 +1856,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       await readStudioGeometry(cdp),
     );
 
-    const addressCenterDelta = await cdp.evaluate<number>(`
+    const addressCenterDelta = await cdp.evaluate<{ x: number; y: number }>(`
       (() => {
         const bar = document.querySelector('.composition-browser-bar');
         const address = document.querySelector('.composition-address');
@@ -1538,13 +1865,20 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         }
         const barRect = bar.getBoundingClientRect();
         const addressRect = address.getBoundingClientRect();
-        return Math.abs(
-          barRect.top + barRect.height / 2 -
-          (addressRect.top + addressRect.height / 2)
-        );
+        return {
+          x: Math.abs(
+            barRect.left + barRect.width / 2 -
+            (addressRect.left + addressRect.width / 2)
+          ),
+          y: Math.abs(
+            barRect.top + barRect.height / 2 -
+            (addressRect.top + addressRect.height / 2)
+          ),
+        };
       })()
     `);
-    expect(addressCenterDelta).toBeLessThanOrEqual(1);
+    expect(addressCenterDelta.x).toBeLessThanOrEqual(1);
+    expect(addressCenterDelta.y).toBeLessThanOrEqual(1);
 
     const exportActionsReady = await cdp.evaluate<boolean>(`
       (() => {
@@ -1768,6 +2102,43 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         preset.click();
       })()
     `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<string>(`
+            document.querySelector('.header-feedback')?.getAttribute(
+              'data-feedback-kind',
+            ) ?? ''
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe('info');
+    expectFeedbackInsideHeader(
+      await readHeaderFeedbackGeometry(cdp),
+      'info',
+    );
+    await cdp.evaluate(`
+      (() => {
+        const dismiss = document.querySelector(
+          '.header-feedback-dismiss[aria-label="閉じる"]',
+        );
+        if (!(dismiss instanceof HTMLButtonElement)) {
+          throw new Error('The feedback dismiss action was not found.');
+        }
+        dismiss.click();
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<string>(`
+            document.querySelector('.header-feedback')?.getAttribute(
+              'data-feedback-kind',
+            ) ?? ''
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe('brand');
     await expect
       .poll(
         () =>
@@ -2357,8 +2728,6 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
 
     await cdp.evaluate(`
       (() => {
-        document.querySelector('.toast-notice button[aria-label="閉じる"]')
-          ?.click();
         document.querySelector(
           'button[aria-controls="settings-panel"]',
         )?.click();
@@ -2412,6 +2781,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     if (HEADLESS_E2E) {
       fs.rmSync(headlessUiExportPath, { force: true });
     }
+    await installHeaderFeedbackHistory(cdp);
     await cdp.evaluate(`
       document.querySelector('.settings-close-button')?.click();
       document.querySelector(
@@ -2420,22 +2790,13 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         )}]',
       )?.click();
     `);
-    if (HEADLESS_E2E || !isWslHost()) {
-      await expect
-        .poll(
-          () =>
-            cdp.evaluate<boolean>(
-              `document.querySelector('.busy-indicator') !== null`,
-            ),
-          { timeout: 5_000 },
-        )
-        .toBe(true);
-    }
     await expect
       .poll(
         () =>
           cdp.evaluate<string>(
-            `document.querySelector('.toast-notice')?.textContent ?? ''`,
+            `document.querySelector(
+              '.header-feedback:not([data-feedback-kind="brand"])',
+            )?.textContent ?? ''`,
           ),
         { timeout: 30_000 },
       )
@@ -2446,6 +2807,19 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           ? 'WSL2/WSLg'
           : `${desktopArtboard.width} × ${desktopArtboard.height} の画像をコピーしました。`,
       );
+    const completedFeedback = await readHeaderFeedbackGeometry(cdp);
+    expectFeedbackInsideHeader(
+      completedFeedback,
+      HEADLESS_E2E || !isWslHost() ? 'success' : 'error',
+    );
+    const feedbackHistory = await takeHeaderFeedbackHistory(cdp);
+    const busyFeedback = feedbackHistory.find(
+      (feedback) => feedback.kind === 'busy',
+    );
+    if (!busyFeedback) {
+      throw new Error('The export did not expose busy header feedback.');
+    }
+    expectFeedbackInsideHeader(busyFeedback, 'busy');
     if (HEADLESS_E2E) {
       expect(readPngDimensions(headlessUiExportPath)).toEqual({
         width: desktopArtboard.width,

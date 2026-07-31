@@ -1,6 +1,5 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { calculateCompositionLayout } from '@shared/layout';
 import { DEFAULT_SETTINGS } from '@shared/presets';
@@ -15,6 +14,28 @@ function canvasOpeningTag(markup: string): string {
 function artboardOpeningTag(markup: string): string {
   const tag = markup.match(/<div class="composition-artboard[^>]*>/)?.[0];
   if (!tag) throw new Error('Composition artboard was not rendered.');
+  return tag;
+}
+
+function browserFrameOpeningTag(markup: string): string {
+  const tag = markup.match(
+    /<section class="composition-browser-frame[^>]*>/,
+  )?.[0];
+  if (!tag) throw new Error('Browser frame was not rendered.');
+  return tag;
+}
+
+function browserBarOpeningTag(markup: string): string {
+  const tag = markup.match(
+    /<header class="composition-browser-bar[^>]*>/,
+  )?.[0];
+  if (!tag) throw new Error('Browser bar was not rendered.');
+  return tag;
+}
+
+function pageSlotOpeningTag(markup: string): string {
+  const tag = markup.match(/<div class="composition-page-slot[^>]*>/)?.[0];
+  if (!tag) throw new Error('Composition page slot was not rendered.');
   return tag;
 }
 
@@ -48,6 +69,65 @@ describe('CompositionCanvas', () => {
     expect(live).not.toContain('id="page-image"');
     expect(image).toContain('data-slot-mode="image"');
     expect(image).toContain('id="page-image"');
+  });
+
+  it.each([
+    [
+      'https://example.com/dashboard',
+      true,
+      'is-secure',
+      'lock',
+      'example.com/dashboard',
+    ],
+    [
+      'http://example.com/dashboard',
+      true,
+      'is-neutral',
+      'globe',
+      'example.com/dashboard',
+    ],
+    [
+      'https://example.com/dashboard',
+      false,
+      'is-neutral',
+      'globe',
+      'Captured page',
+    ],
+    ['', true, 'is-neutral', 'globe', 'Captured page'],
+  ] as const)(
+    'renders the expected address chrome for %s when showUrl is %s',
+    (pageUrl, showUrl, iconState, icon, addressText) => {
+      const markup = renderToStaticMarkup(
+        createElement(CompositionCanvas, {
+          settings: { ...DEFAULT_SETTINGS, showUrl },
+          pageUrl,
+          slotMode: 'live',
+        }),
+      );
+
+      expect(markup).toContain(
+        `class="composition-address-icon ${iconState}"`,
+      );
+      expect(markup).toContain(`data-address-icon="${icon}"`);
+      expect(markup).toContain(addressText);
+    },
+  );
+
+  it('hides only the decorative browser bar and retains the page-region label', () => {
+    const markup = renderToStaticMarkup(
+      createElement(CompositionCanvas, {
+        settings: DEFAULT_SETTINGS,
+        pageUrl: 'https://example.com',
+        slotMode: 'live',
+      }),
+    );
+
+    expect(browserFrameOpeningTag(markup)).not.toContain('aria-hidden');
+    expect(browserBarOpeningTag(markup)).toContain('aria-hidden="true"');
+    expect(pageSlotOpeningTag(markup)).not.toContain('aria-hidden');
+    expect(pageSlotOpeningTag(markup)).toContain(
+      'aria-label="対象Webページの表示領域"',
+    );
   });
 
   it('uses the same fluid background for live preview and exported image', () => {
@@ -85,7 +165,7 @@ describe('CompositionCanvas', () => {
     expect(artboardOpeningTag(live)).toContain('--background-to:#dce7fb');
   });
 
-  it('keeps the outer canvas black and clips effects inside the artboard', () => {
+  it('places the background and effect layers inside the artboard', () => {
     const layout = calculateCompositionLayout(DEFAULT_SETTINGS);
     const markup = renderToStaticMarkup(
       createElement(CompositionCanvas, {
@@ -93,10 +173,6 @@ describe('CompositionCanvas', () => {
         pageUrl: 'https://example.com',
         slotMode: 'live',
       }),
-    );
-    const stylesheet = readFileSync(
-      new URL('../../src/renderer/styles.css', import.meta.url),
-      'utf8',
     );
 
     expect(canvasOpeningTag(markup)).not.toContain('background-soft');
@@ -109,11 +185,11 @@ describe('CompositionCanvas', () => {
     expect(markup).toContain(
       `left:${(layout.frame.x - layout.artboard.x).toFixed(3)}px`,
     );
-    expect(stylesheet).toMatch(
-      /\.composition-canvas\s*\{[^}]*background:\s*#000;/s,
+    expect(markup.indexOf('composition-artboard')).toBeLessThan(
+      markup.indexOf('composition-glow glow-a'),
     );
-    expect(stylesheet).toMatch(
-      /\.composition-artboard\s*\{[^}]*overflow:\s*hidden;/s,
+    expect(markup.indexOf('composition-artboard')).toBeLessThan(
+      markup.indexOf('composition-grain'),
     );
   });
 
@@ -139,22 +215,7 @@ describe('CompositionCanvas', () => {
     },
   );
 
-  it('does not render the retired live canvas footer', () => {
-    const liveCanvasSource = readFileSync(
-      new URL('../../src/renderer/components/LiveCanvas.tsx', import.meta.url),
-      'utf8',
-    );
-    const stylesheet = readFileSync(
-      new URL('../../src/renderer/styles.css', import.meta.url),
-      'utf8',
-    );
-
-    expect(liveCanvasSource).not.toContain('canvas-caption');
-    expect(liveCanvasSource).not.toContain('LIVE ·');
-    expect(stylesheet).not.toContain('.canvas-caption');
-  });
-
-  it('uses shared layout values for the browser address', () => {
+  it('uses shared layout values for the browser bar, address, and page slot', () => {
     const layout = calculateCompositionLayout(DEFAULT_SETTINGS);
     const markup = renderToStaticMarkup(
       createElement(CompositionCanvas, {
@@ -167,6 +228,16 @@ describe('CompositionCanvas', () => {
     expect(markup).toContain(
       `height:${layout.browserAddressHeight.toFixed(3)}px`,
     );
+    expect(browserBarOpeningTag(markup)).toContain(
+      `height:${layout.browserBarHeight.toFixed(3)}px`,
+    );
+    expect(pageSlotOpeningTag(markup)).toContain(
+      `left:${(layout.screen.x - layout.frame.x).toFixed(3)}px`,
+    );
+    expect(pageSlotOpeningTag(markup)).toContain(
+      `top:${(layout.screen.y - layout.frame.y).toFixed(3)}px`,
+    );
+    expect(layout.browserBarHeight / layout.scale).toBeCloseTo(58);
   });
 
   it.each(['browser', 'phone', 'tablet', 'none'] as const)(
