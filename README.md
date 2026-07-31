@@ -5,14 +5,14 @@
 <h1 align="center">FrameShot</h1>
 
 <p align="center">
-  セルフホストしたWebページを操作し、淡い背景・ブラウザ枠・スマホ枠を含む宣伝用PNGへ仕上げるWindows向けElectronアプリ。
+  セルフホストしたWebページを操作し、淡い背景・ブラウザ枠・Phone枠・Tablet枠を含む宣伝用PNGへ仕上げるWindows向けElectronアプリ。
 </p>
 
 ## できること
 
 - URLを入力して、実際のページをアプリ内で操作
-- Desktop / Mobile の論理ビューポート切り替え
-- Browser / Phone / None のフレーム切り替え
+- Desktop / Phone / iPad の論理ビューポート切り替え
+- Browser / Phone / Tablet / None のフレーム切り替え
 - 出力サイズ、ページ表示サイズ、余白、角丸、影を個別に設定
 - 自然な濃さのグラデーションプリセットと任意色
 - ライブ表示と書き出しで同じキャンバス・CSSを使用
@@ -47,7 +47,7 @@ npm start
 
 1. 上部のURL欄にセルフホストページのURLを入力します。
 2. 中央のライブ表示で、スクロール、ログイン、メニュー表示など書き出したい状態を作ります。
-3. ヘッダーのDesktop / Mobileからページ表示サイズを選びます。任意サイズは各リストのCustomから設定を開いて入力します。
+3. ヘッダーのDesktop / Phoneからページ表示サイズを選びます。PhoneメニューにはiPadサイズも含まれ、任意サイズは各リストのCustomから設定を開いて入力します。
 4. 必要に応じて設定を開き、出力サイズ、フレーム、背景、余白、影などを調整します。
 5. 「保存」または「コピー」を押します。その時点のページを自動取得し、ライブ表示と同じキャンバスから最新のPNGを生成します。
 
@@ -58,6 +58,12 @@ npm start
 | URL欄へ移動 | `Ctrl/Cmd + L` |
 | PNG保存 | `Ctrl/Cmd + S` |
 | 対象ページを再読み込み | `Ctrl/Cmd + R` |
+
+### クリップボード
+
+画像コピーのサポート対象は、FrameShotをネイティブWindows環境で起動した場合です。コピー後にOSのクリップボードから画像を読み戻し、完成PNGと同じ寸法であることを確認してから成功を表示します。
+
+WSL2 / WSLgの `npm start` では、Linux側に書き込んだ画像がWindows側の画像クリップボードへ渡らないため、コピーは未対応として案内します。この場合はネイティブWindows版を起動するか「保存」でPNGを書き出してください。WSLからPowerShellを起動する橋渡しや、ページPNGの一時ファイル作成は行いません。
 
 ## アーキテクチャ
 
@@ -79,6 +85,8 @@ TargetBrowserController.capturePage() → 最新のページPNG
 ```
 
 操作UIは本番ビルドでは `frameshot-app://app/` から配信され、外部通信を許可しないCSPを適用します。対象ページとは別のWebContentsで、ページ側にはNode.jsやIPC APIを公開しません。ライブ表示と非表示の書き出しRendererは同じ `CompositionCanvas` とCSSを使い、後者だけがページ領域を `frameshot-export:` のインメモリ画像へ差し替えて正確な寸法で出力します。
+
+ページ取得時は、操作中の `WebContentsView` を一時的な非表示 `BaseWindow` へ移し、指定した撮影倍率の物理寸法で再描画します。取得画像が空、または期待寸法と異なる場合は再試行し、古いプレビューsurfaceを引き伸ばして保存しません。完了後は同じviewを操作UIへ戻すため、スクロールやログイン状態は維持されます。
 
 詳しくは [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) を参照してください。
 

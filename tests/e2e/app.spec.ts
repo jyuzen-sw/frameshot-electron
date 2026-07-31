@@ -5,12 +5,29 @@ import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
 import { expect, test } from '@playwright/test';
-import type { ExportResult } from '../../src/shared/types';
+import { calculateCompositionLayout } from '../../src/shared/layout';
+import type {
+  CaptureSettings,
+  ExportResult,
+} from '../../src/shared/types';
 
 interface RunningApp {
+  browserEndpoint: string;
   cdp: CdpPage;
   child: ChildProcess;
+  closed: Promise<ChildProcessCloseResult>;
   output: () => string;
+}
+
+interface ChildProcessCloseResult {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+}
+
+interface ClipboardProbe {
+  height: number;
+  pngPath: string;
+  width: number;
 }
 
 interface CdpResponse {
@@ -36,6 +53,15 @@ interface PendingCdpRequest {
 }
 
 const CDP_COMMAND_TIMEOUT_MS = 15_000;
+
+function isWslHost(): boolean {
+  return (
+    process.platform === 'linux' &&
+    (Boolean(process.env.WSL_DISTRO_NAME) ||
+      Boolean(process.env.WSL_INTEROP) ||
+      os.release().toLowerCase().includes('microsoft'))
+  );
+}
 
 function logE2e(message: string): void {
   console.log(`[e2e] ${new Date().toISOString()} ${message}`);
@@ -219,6 +245,180 @@ function packagedExecutable(): string {
   return executable;
 }
 
+function developmentElectronExecutable(): string {
+  const base = path.resolve('node_modules', 'electron', 'dist');
+  if (process.platform === 'win32') {
+    return path.join(base, 'electron.exe');
+  }
+  if (process.platform === 'darwin') {
+    return path.join(
+      base,
+      'Electron.app',
+      'Contents',
+      'MacOS',
+      'Electron',
+    );
+  }
+  return path.join(base, 'electron');
+}
+
+async function probeClipboardImage(
+  tempDirectory: string,
+  label: string,
+): Promise<ClipboardProbe> {
+  const pngPath = path.join(tempDirectory, `${label}.png`);
+  const userDataDirectory = path.join(
+    tempDirectory,
+    `${label}-clipboard-probe-data`,
+  );
+  const args = [
+    '--disable-gpu',
+    ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
+    `--user-data-dir=${userDataDirectory}`,
+    path.resolve('tests/e2e/clipboard-probe.cjs'),
+    pngPath,
+  ];
+  let output = '';
+  const child = spawn(developmentElectronExecutable(), args, {
+    cwd: path.resolve('.'),
+    env: {
+      ...process.env,
+      TMPDIR: tempDirectory,
+      TEMP: tempDirectory,
+      TMP: tempDirectory,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const closed = observeChildProcessClose(child);
+  child.stdout?.on('data', (chunk) => {
+    output += String(chunk);
+  });
+  child.stderr?.on('data', (chunk) => {
+    output += String(chunk);
+  });
+
+  const result = await new Promise<ChildProcessCloseResult>(
+    (resolve, reject) => {
+      const onError = (error: Error) => {
+        clearTimeout(timeout);
+        reject(error);
+      };
+      const timeout = setTimeout(() => {
+        child.off('error', onError);
+        child.kill('SIGKILL');
+        reject(new Error(`Clipboard probe timed out.\n${output}`));
+      }, 20_000);
+      child.once('error', onError);
+      closed.then((closeResult) => {
+        child.off('error', onError);
+        clearTimeout(timeout);
+        resolve(closeResult);
+      }, reject);
+    },
+  );
+  if (result.code !== 0 || result.signal !== null) {
+    throw new Error(
+      `Clipboard probe failed (${result.code ?? result.signal}).\n${output}`,
+    );
+  }
+
+  const match = output.match(
+    /FRAMESHOT_CLIPBOARD_PROBE:(\{"width":\d+,"height":\d+\})/,
+  );
+  if (!match?.[1]) {
+    throw new Error(`Clipboard probe did not report an image.\n${output}`);
+  }
+  const size = JSON.parse(match[1]) as {
+    width: number;
+    height: number;
+  };
+  return { ...size, pngPath };
+}
+
+async function samplePngPixels(
+  cdp: CdpPage,
+  pngPath: string,
+  points: ReadonlyArray<{ x: number; y: number }>,
+): Promise<number[][]> {
+  const dataUrl = `data:image/png;base64,${fs
+    .readFileSync(pngPath)
+    .toString('base64')}`;
+  return cdp.evaluate<number[][]>(`
+    new Promise((resolve, reject) => {
+      const image = new Image();
+      image.addEventListener('load', () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (!context) {
+          reject(new Error('Could not create the PNG sampling context.'));
+          return;
+        }
+        context.drawImage(image, 0, 0);
+        resolve(${JSON.stringify(points)}.map(({ x, y }) =>
+          Array.from(context.getImageData(x, y, 1, 1).data)
+        ));
+      }, { once: true });
+      image.addEventListener(
+        'error',
+        () => reject(new Error('Could not load the probed clipboard PNG.')),
+        { once: true },
+      );
+      image.src = ${JSON.stringify(dataUrl)};
+    })
+  `);
+}
+
+function expectPixelNear(
+  actual: number[],
+  expected: readonly [number, number, number, number],
+): void {
+  expect(actual).toHaveLength(4);
+  for (const [index, channel] of expected.entries()) {
+    expect(Math.abs((actual[index] ?? -255) - channel)).toBeLessThanOrEqual(8);
+  }
+}
+
+function compositionViewportSamplePoints(
+  settings: CaptureSettings,
+): Array<{ x: number; y: number }> {
+  const layout = calculateCompositionLayout(settings);
+  const markerInset = 32 * layout.scale;
+  return [
+    {
+      x: Math.round(layout.screen.x + markerInset),
+      y: Math.round(layout.screen.y + markerInset),
+    },
+    {
+      x: Math.round(layout.screen.x + layout.screen.width - markerInset),
+      y: Math.round(layout.screen.y + markerInset),
+    },
+    {
+      x: Math.round(layout.screen.x + markerInset),
+      y: Math.round(layout.screen.y + layout.screen.height - markerInset),
+    },
+    {
+      x: Math.round(layout.screen.x + layout.screen.width - markerInset),
+      y: Math.round(layout.screen.y + layout.screen.height - markerInset),
+    },
+    {
+      x: Math.round(layout.screen.x + layout.screen.width / 2),
+      y: Math.round(layout.screen.y + layout.screen.height / 2),
+    },
+  ];
+}
+
+function compositionTabletBezelSamplePoint(
+  settings: CaptureSettings,
+): { x: number; y: number } {
+  const layout = calculateCompositionLayout(settings);
+  return {
+    x: Math.round(layout.frame.x + layout.frame.width * 0.25),
+    y: Math.round(layout.frame.y + layout.tabletBezel.top / 2),
+  };
+}
+
 async function waitForDevToolsEndpoint(
   child: ChildProcess,
   readOutput: () => string,
@@ -269,6 +469,39 @@ async function waitForMainPageEndpoint(
   throw new Error('FrameShotの操作画面がDevToolsへ公開されませんでした。');
 }
 
+async function waitForTargetPageEndpoint(
+  browserEndpoint: string,
+  targetUrl: string,
+): Promise<string> {
+  logE2e('Waiting for the target page DevTools endpoint.');
+  const browserUrl = new URL(browserEndpoint);
+  const targetOrigin = new URL(targetUrl).origin;
+  const listUrl = `http://${browserUrl.host}/json/list`;
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    const targets = (await fetch(listUrl)
+      .then((response) => response.json())
+      .catch(() => [])) as Array<{
+      url?: string;
+      webSocketDebuggerUrl?: string;
+    }>;
+    const target = targets.find((candidate) => {
+      if (!candidate.url) return false;
+      try {
+        return new URL(candidate.url).origin === targetOrigin;
+      } catch {
+        return false;
+      }
+    });
+    if (target?.webSocketDebuggerUrl) {
+      logE2e('Target page DevTools endpoint detected.');
+      return target.webSocketDebuggerUrl;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error('撮影対象ページがDevToolsへ公開されませんでした。');
+}
+
 function childProcessStopped(child: ChildProcess): boolean {
   return (
     child.pid === undefined ||
@@ -281,6 +514,14 @@ function childProcessResult(child: ChildProcess): string {
   if (child.exitCode !== null) return `exit code ${child.exitCode}`;
   if (child.signalCode !== null) return `signal ${child.signalCode}`;
   return 'unknown status';
+}
+
+function observeChildProcessClose(
+  child: ChildProcess,
+): Promise<ChildProcessCloseResult> {
+  return new Promise((resolve) => {
+    child.once('close', (code, signal) => resolve({ code, signal }));
+  });
 }
 
 async function launchPackagedApp(tempDirectory: string): Promise<RunningApp> {
@@ -305,6 +546,7 @@ async function launchPackagedApp(tempDirectory: string): Promise<RunningApp> {
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   );
+  const closed = observeChildProcessClose(child);
   const spawned = waitForChildProcessSpawn(child);
   child.stdout?.on('data', (chunk) => {
     processOutput += String(chunk);
@@ -326,7 +568,7 @@ async function launchPackagedApp(tempDirectory: string): Promise<RunningApp> {
     const pageEndpoint = await waitForMainPageEndpoint(browserEndpoint);
     const cdp = await CdpPage.connect(pageEndpoint);
     logE2e('Packaged Electron application launch completed.');
-    return { cdp, child, output };
+    return { browserEndpoint, cdp, child, closed, output };
   } catch (error) {
     logE2e(
       'Packaged Electron application launch failed; dumping output before shutdown.',
@@ -431,6 +673,7 @@ async function stopPackagedApp(app: RunningApp): Promise<void> {
   logE2e('Closing the page DevTools connection.');
   app.cdp.close();
   await stopChildProcess(app.child);
+  await app.closed;
 }
 
 async function cleanupScenario(
@@ -490,16 +733,51 @@ async function startFixtureServer(): Promise<{ server: Server; url: string }> {
       return;
     }
     response.end(`<!doctype html>
-      <html><head><title>FrameShot fixture</title><style>
+      <html><head><title>FrameShot fixture</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
       *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}
       body{display:grid;place-items:center;font-family:system-ui;color:white;background:#111827}
       canvas{position:fixed;inset:0;width:100vw;height:100vh;z-index:0}
       main{position:relative;z-index:1;padding:64px;text-align:center}
       h1{font-size:72px;margin:0 0 16px}p{font-size:24px}
+      .capture-marker{position:fixed;z-index:2;width:64px;height:64px}
+      #marker-tl{left:0;top:0;background:#ff0055}
+      #marker-tr{right:0;top:0;background:#00e5ff}
+      #marker-bl{left:0;bottom:0;background:#ffd600}
+      #marker-br{right:0;bottom:0;background:#8c52ff}
+      #viewport-sentinel{position:fixed;left:50%;top:50%;z-index:3;width:48px;height:48px;
+        background:#dc2626;transform:translate(-50%,-50%)}
+      #viewport-size{position:fixed;right:80px;bottom:16px;z-index:2;
+        padding:8px 12px;background:#020617;color:#fff;font:700 18px monospace}
+      #animation-probe{position:fixed;left:80px;bottom:16px;width:1px;height:1px;
+        animation:fixture-pulse 10s linear infinite alternate}
+      @keyframes fixture-pulse{from{opacity:.25}to{opacity:.75}}
+      @media (min-width:1440px) and (max-width:1440px) and
+        (min-height:900px) and (max-height:900px){
+        #viewport-sentinel{background:#16a34a}
+      }
+      @media (min-width:768px) and (max-width:768px) and
+        (min-height:1024px) and (max-height:1024px){
+        #viewport-sentinel{background:#2563eb}
+      }
       </style></head><body><canvas id="webgl-output" width="1440" height="900"></canvas>
+      <i id="marker-tl" class="capture-marker"></i>
+      <i id="marker-tr" class="capture-marker"></i>
+      <i id="marker-bl" class="capture-marker"></i>
+      <i id="marker-br" class="capture-marker"></i>
+      <i id="viewport-sentinel"></i>
+      <i id="animation-probe"></i>
+      <output id="viewport-size"></output>
       <main><h1>Capture ready</h1><p>Local WebGL2 fixture page</p></main>
       <script>
         const canvas = document.querySelector('#webgl-output');
+        const viewportSize = document.querySelector('#viewport-size');
+        const updateViewportSize = () => {
+          viewportSize.textContent = innerWidth + ' × ' + innerHeight;
+        };
+        addEventListener('resize', updateViewportSize);
+        updateViewportSize();
         const gl = canvas.getContext('webgl2');
         if (gl) {
           gl.viewport(0, 0, canvas.width, canvas.height);
@@ -573,12 +851,47 @@ async function waitForMainText(cdp: CdpPage, text: string): Promise<void> {
   logE2e('Fixture transition was confirmed in the main UI.');
 }
 
+interface TargetFixtureState {
+  animationPlayState: string;
+  height: number;
+  sentinelColor: string;
+  viewportText: string;
+  visibilityState: DocumentVisibilityState;
+  width: number;
+}
+
+async function readTargetFixtureState(cdp: CdpPage): Promise<TargetFixtureState> {
+  return cdp.evaluate<TargetFixtureState>(`
+    (() => {
+      const sentinel = document.querySelector('#viewport-sentinel');
+      const animationProbe = document.querySelector('#animation-probe');
+      const viewportSize = document.querySelector('#viewport-size');
+      if (
+        !(sentinel instanceof HTMLElement) ||
+        !(animationProbe instanceof HTMLElement) ||
+        !(viewportSize instanceof HTMLOutputElement)
+      ) {
+        throw new Error('The target fixture probes were not found.');
+      }
+      return {
+        animationPlayState: getComputedStyle(animationProbe).animationPlayState,
+        height: innerHeight,
+        sentinelColor: getComputedStyle(sentinel).backgroundColor,
+        viewportText: viewportSize.textContent ?? '',
+        visibilityState: document.visibilityState,
+        width: innerWidth,
+      };
+    })()
+  `);
+}
+
 test('opens a WebGL2 page and exports the latest shared canvas', async () => {
   const fixture = await startFixtureServer();
   const tempDirectory = fs.mkdtempSync(
     path.join(os.tmpdir(), 'frameshot-e2e-'),
   );
   let app: RunningApp | null = null;
+  let targetCdp: CdpPage | null = null;
   let scenarioError: unknown;
 
   try {
@@ -709,6 +1022,18 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
 
     await navigateFromMainUi(cdp, fixture.url);
     await waitForMainText(cdp, 'FrameShot fixture — WebGL2 ready');
+    targetCdp = await CdpPage.connect(
+      await waitForTargetPageEndpoint(app.browserEndpoint, fixture.url),
+    );
+    const targetPage = targetCdp;
+    expect(await readTargetFixtureState(targetPage)).toEqual({
+      animationPlayState: 'running',
+      height: 900,
+      sentinelColor: 'rgb(22, 163, 74)',
+      viewportText: '1440 × 900',
+      visibilityState: 'visible',
+      width: 1440,
+    });
     logE2e('WebGL2 fixture is ready.');
 
     const addressCenterDelta = await cdp.evaluate<number>(`
@@ -763,7 +1088,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       (() => {
         const preset = Array.from(
           document.querySelectorAll(
-            '[data-device-mode="mobile"] [role="menuitem"]',
+            '[data-device-mode="mobile"] [role="menuitemradio"]',
           ),
         ).find((button) => button.querySelector('b')?.textContent === 'Android');
         if (!(preset instanceof HTMLButtonElement)) {
@@ -791,16 +1116,27 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     const mobileSettings = await cdp.evaluate<Record<string, unknown>>(`
       JSON.parse(localStorage.getItem('frameshot:settings:v2'))
     `);
+    expect(mobileSettings).toMatchObject({
+      deviceMode: 'mobile',
+      frameStyle: 'phone',
+      showUrl: false,
+      viewportWidth: 412,
+      viewportHeight: 915,
+    });
     for (const key of [
       'outputWidth',
       'outputHeight',
-      'frameStyle',
       'gradientFrom',
       'gradientTo',
       'margin',
     ]) {
       expect(mobileSettings[key]).toEqual(baselineSettings[key]);
     }
+    expect(
+      await cdp.evaluate<string>(
+        `document.querySelector('.composition-canvas')?.getAttribute('data-frame-style') ?? ''`,
+      ),
+    ).toBe('phone');
 
     await cdp.evaluate(`
       document.querySelector(
@@ -812,7 +1148,106 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         () =>
           cdp.evaluate<boolean>(`
             document.querySelector(
-              '[data-device-mode="mobile"] [role="menuitem"].custom',
+              '[data-device-mode="mobile"] [role="menu"]',
+            ) !== null
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      (() => {
+        const preset = Array.from(
+          document.querySelectorAll(
+            '[data-device-mode="mobile"] [role="menuitemradio"]',
+          ),
+        ).find(
+          (button) =>
+            button.querySelector('b')?.textContent === 'iPad Pro 12.9″',
+        );
+        if (!(preset instanceof HTMLButtonElement)) {
+          throw new Error('The iPad Pro viewport preset was not found.');
+        }
+        preset.click();
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v2'),
+              );
+              return settings.deviceMode === 'mobile' &&
+                settings.frameStyle === 'tablet' &&
+                settings.viewportWidth === 1024 &&
+                settings.viewportHeight === 1366 &&
+                document.querySelector(
+                  '.composition-canvas[data-frame-style="tablet"]',
+                ) !== null &&
+                document.querySelector('.composition-tablet-camera') !== null &&
+                document.querySelector('.composition-phone-island') === null &&
+                document.querySelector('.composition-phone-home') === null;
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+
+    await cdp.evaluate(`
+      document.querySelector('button[aria-controls="settings-panel"]')?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(
+            `document.querySelector('button[aria-controls="settings-panel"]')?.getAttribute('aria-expanded') === 'true'`,
+          ),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      (() => {
+        const browserFrame = Array.from(
+          document.querySelectorAll('.frame-selector button'),
+        ).find((button) => button.textContent?.includes('Browser'));
+        if (!(browserFrame instanceof HTMLButtonElement)) {
+          throw new Error('The manual Browser frame control was not found.');
+        }
+        browserFrame.click();
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v2'),
+              );
+              return settings.frameStyle === 'browser' &&
+                settings.viewportWidth === 1024 &&
+                settings.viewportHeight === 1366;
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      document.querySelector('.settings-close-button')?.click()
+    `);
+
+    await cdp.evaluate(`
+      document.querySelector(
+        '[data-device-mode="mobile"] .viewport-menu-trigger',
+      )?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="mobile"] [role="menuitemradio"].custom',
             ) !== null
           `),
         { timeout: 5_000 },
@@ -821,7 +1256,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     await cdp.evaluate(`
       (() => {
         const custom = document.querySelector(
-          '[data-device-mode="mobile"] [role="menuitem"].custom',
+          '[data-device-mode="mobile"] [role="menuitemradio"].custom',
         );
         if (!(custom instanceof HTMLButtonElement)) {
           throw new Error('The custom viewport action was not found.');
@@ -861,9 +1296,16 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     await expect
       .poll(
         () =>
-          cdp.evaluate<boolean>(
-            `JSON.parse(localStorage.getItem('frameshot:settings:v2')).viewportWidth === 414`,
-          ),
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v2'),
+              );
+              return settings.viewportWidth === 414 &&
+                settings.frameStyle === 'phone' &&
+                settings.showUrl === false;
+            })()
+          `),
         { timeout: 5_000 },
       )
       .toBe(true);
@@ -890,7 +1332,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       (() => {
         const preset = Array.from(
           document.querySelectorAll(
-            '[data-device-mode="desktop"] [role="menuitem"]',
+            '[data-device-mode="desktop"] [role="menuitemradio"]',
           ),
         ).find((button) => button.querySelector('b')?.textContent === 'Desktop');
         if (!(preset instanceof HTMLButtonElement)) {
@@ -909,29 +1351,160 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
               );
               return settings.deviceMode === 'desktop' &&
                 settings.viewportWidth === 1440 &&
-                settings.viewportHeight === 900;
+                settings.viewportHeight === 900 &&
+                settings.frameStyle === 'browser' &&
+                settings.showUrl === true;
             })()
           `),
         { timeout: 5_000 },
       )
       .toBe(true);
 
-    const directExport = await cdp.evaluate<ExportResult>(`
-      (async () => {
-        const settings = JSON.parse(
-          localStorage.getItem('frameshot:settings:v2'),
-        );
-        return window.frameShot.exportImage(settings, 'clipboard');
-      })()
+    const desktopSettings = await cdp.evaluate<CaptureSettings>(`
+      JSON.parse(localStorage.getItem('frameshot:settings:v2'))
     `);
-    expect(directExport).toMatchObject({
-      destination: 'clipboard',
-      completed: true,
-      width: 1920,
-      height: 1080,
+    expect(desktopSettings).toMatchObject({
+      deviceMode: 'desktop',
+      frameStyle: 'browser',
+      showUrl: true,
+      viewportWidth: 1440,
+      viewportHeight: 900,
     });
-    expect(directExport.exportedAt).toEqual(expect.any(String));
-    logE2e('The shared export renderer completed an exact-size export.');
+
+    if (isWslHost()) {
+      const clipboardError = await cdp.evaluate<string>(`
+        (async () => {
+          const settings = JSON.parse(
+            localStorage.getItem('frameshot:settings:v2'),
+          );
+          try {
+            await window.frameShot.exportImage(settings, 'clipboard');
+            return '';
+          } catch (error) {
+            return error instanceof Error ? error.message : String(error);
+          }
+        })()
+      `);
+      expect(clipboardError).toContain('WSL2/WSLg');
+      expect(clipboardError).toContain('保存');
+      logE2e('WSL clipboard copy was rejected with the supported fallback.');
+    } else {
+      const expectedDesktopPixels = [
+        [255, 0, 85, 255],
+        [0, 229, 255, 255],
+        [255, 214, 0, 255],
+        [140, 82, 255, 255],
+        [22, 163, 74, 255],
+      ] as const;
+
+      for (const captureScale of [1, 2] as const) {
+        const directExport = await cdp.evaluate<ExportResult>(`
+          (async () => {
+            const settings = JSON.parse(
+              localStorage.getItem('frameshot:settings:v2'),
+            );
+            return window.frameShot.exportImage(
+              {
+                ...settings,
+                captureScale: ${captureScale},
+                pauseAnimations: true,
+              },
+              'clipboard',
+            );
+          })()
+        `);
+        expect(directExport).toMatchObject({
+          destination: 'clipboard',
+          completed: true,
+          width: 1920,
+          height: 1080,
+        });
+        expect(directExport.exportedAt).toEqual(expect.any(String));
+
+        const probe = await probeClipboardImage(
+          tempDirectory,
+          `capture-${captureScale}x`,
+        );
+        expect(probe).toMatchObject({ width: 1920, height: 1080 });
+        const markerPixels = await samplePngPixels(
+          cdp,
+          probe.pngPath,
+          compositionViewportSamplePoints(desktopSettings),
+        );
+        for (const [index, expectedPixel] of expectedDesktopPixels.entries()) {
+          expectPixelNear(markerPixels[index] ?? [], expectedPixel);
+        }
+        expect(await readTargetFixtureState(targetPage)).toEqual({
+          animationPlayState: 'running',
+          height: 900,
+          sentinelColor: 'rgb(22, 163, 74)',
+          viewportText: '1440 × 900',
+          visibilityState: 'visible',
+          width: 1440,
+        });
+      }
+
+      const ipadSettings: CaptureSettings = {
+        ...desktopSettings,
+        captureScale: 2,
+        deviceMode: 'mobile',
+        frameStyle: 'tablet',
+        pauseAnimations: true,
+        showUrl: false,
+        viewportHeight: 1024,
+        viewportWidth: 768,
+      };
+      const ipadExport = await cdp.evaluate<ExportResult>(`
+        window.frameShot.exportImage(
+          ${JSON.stringify(ipadSettings)},
+          'clipboard',
+        )
+      `);
+      expect(ipadExport).toMatchObject({
+        destination: 'clipboard',
+        completed: true,
+        width: 1920,
+        height: 1080,
+      });
+      const ipadProbe = await probeClipboardImage(
+        tempDirectory,
+        'capture-ipad-tablet',
+      );
+      expect(ipadProbe).toMatchObject({ width: 1920, height: 1080 });
+      const ipadPixels = await samplePngPixels(
+        cdp,
+        ipadProbe.pngPath,
+        [
+          ...compositionViewportSamplePoints(ipadSettings),
+          compositionTabletBezelSamplePoint(ipadSettings),
+        ],
+      );
+      const expectedIpadPixels = [
+        [255, 0, 85, 255],
+        [0, 229, 255, 255],
+        [255, 214, 0, 255],
+        [140, 82, 255, 255],
+        [37, 99, 235, 255],
+      ] as const;
+      for (const [index, expectedPixel] of expectedIpadPixels.entries()) {
+        expectPixelNear(ipadPixels[index] ?? [], expectedPixel);
+      }
+      const tabletBezelPixel = ipadPixels[5] ?? [];
+      expect(tabletBezelPixel).toHaveLength(4);
+      expect(Math.max(...tabletBezelPixel.slice(0, 3))).toBeLessThan(90);
+      expect(tabletBezelPixel[3]).toBe(255);
+      expect(await readTargetFixtureState(targetPage)).toEqual({
+        animationPlayState: 'running',
+        height: 900,
+        sentinelColor: 'rgb(22, 163, 74)',
+        viewportText: '1440 × 900',
+        visibilityState: 'visible',
+        width: 1440,
+      });
+      logE2e(
+        'The 1x, 2x, and iPad exports preserved the requested logical viewports and Tablet frame.',
+      );
+    }
 
     await cdp.evaluate(`
       (() => {
@@ -980,24 +1553,30 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       document.querySelector('.settings-close-button')?.click();
       document.querySelector('button[aria-label="画像をコピー"]')?.click();
     `);
-    await expect
-      .poll(
-        () =>
-          cdp.evaluate<boolean>(
-            `document.querySelector('.busy-indicator') !== null`,
-          ),
-        { timeout: 5_000 },
-      )
-      .toBe(true);
+    if (!isWslHost()) {
+      await expect
+        .poll(
+          () =>
+            cdp.evaluate<boolean>(
+              `document.querySelector('.busy-indicator') !== null`,
+            ),
+          { timeout: 5_000 },
+        )
+        .toBe(true);
+    }
     await expect
       .poll(
         () =>
           cdp.evaluate<string>(
-            `document.querySelector('.toast-notice.success')?.textContent ?? ''`,
+            `document.querySelector('.toast-notice')?.textContent ?? ''`,
           ),
         { timeout: 30_000 },
       )
-      .toContain('1920 × 1080 の画像をコピーしました。');
+      .toContain(
+        isWslHost()
+          ? 'WSL2/WSLg'
+          : '1920 × 1080 の画像をコピーしました。',
+      );
     expect(
       await cdp.evaluate<boolean>(`
         (() => {
@@ -1021,6 +1600,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     }
     throw error;
   } finally {
+    targetCdp?.close();
     await cleanupScenario(
       'WebGL2 shared export',
       app,
@@ -1088,6 +1668,68 @@ test('keeps target cookies only for the current app process', async () => {
   } finally {
     await cleanupScenario(
       'session isolation',
+      app,
+      fixture.server,
+      tempDirectory,
+      scenarioError,
+    );
+  }
+});
+
+test('closes the application window without main process errors', async () => {
+  const fixture = await startFixtureServer();
+  const tempDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'frameshot-close-e2e-'),
+  );
+  let app: RunningApp | null = null;
+  let scenarioError: unknown;
+
+  try {
+    app = await launchPackagedApp(tempDirectory);
+    await waitForMainUi(app.cdp);
+    await navigateFromMainUi(app.cdp, fixture.url);
+    await waitForMainText(app.cdp, 'FrameShot fixture — WebGL2 ready');
+
+    await app.cdp.evaluate(`
+      (() => {
+        const settings = {
+          ...JSON.parse(localStorage.getItem('frameshot:settings:v2')),
+          captureScale: 2,
+          waitMs: 5000,
+        };
+        void window.frameShot
+          .exportImage(settings, 'clipboard')
+          .catch(() => undefined);
+        setTimeout(() => window.close(), 200);
+        return true;
+      })()
+    `);
+
+    await expect
+      .poll(() => app ? childProcessStopped(app.child) : false, {
+        timeout: 10_000,
+      })
+      .toBe(true);
+    const closeResult = await app.closed;
+    expect(closeResult.code).toBe(0);
+    expect(closeResult.signal).toBeNull();
+    expect(app.output()).not.toMatch(
+      /Object has been destroyed|Uncaught exception|A JavaScript error occurred/i,
+    );
+    logE2e(
+      isWslHost()
+        ? 'Window close after the supported WSL clipboard rejection completed without a main process exception.'
+        : 'Window close during export completed without a main process exception.',
+    );
+  } catch (error) {
+    scenarioError = error;
+    if (app) {
+      logElectronOutput(app.output());
+    }
+    throw error;
+  } finally {
+    await cleanupScenario(
+      'window close',
       app,
       fixture.server,
       tempDirectory,
