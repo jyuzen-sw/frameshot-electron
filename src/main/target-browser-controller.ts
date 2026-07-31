@@ -232,7 +232,12 @@ export class TargetBrowserController {
                       new Promise((resolve) => setTimeout(resolve, 3000))
                     ]);
                   }
-                  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                  await Promise.race([
+                    new Promise((resolve) =>
+                      requestAnimationFrame(() => requestAnimationFrame(resolve))
+                    ),
+                    new Promise((resolve) => setTimeout(resolve, 250))
+                  ]);
                 })();
               `);
               await delay(Math.max(50, settings.waitMs));

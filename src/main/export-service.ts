@@ -38,6 +38,10 @@ interface ExportServiceOptions {
   targetBrowser: TargetBrowserController;
   rendererUrl: string;
   rendererRoot?: string;
+  resolveOutputPath?: (
+    settings: CaptureSettings,
+  ) => Promise<string | undefined>;
+  prepareHeadlessCaptureSurface?: boolean;
 }
 
 const EXPORT_STEP_TIMEOUT_MS = 10_000;
@@ -51,6 +55,12 @@ const WAIT_FOR_EXPORT_RENDERER_SCRIPT = `new Promise((resolve) => {
   };
   check();
 })`;
+const WAIT_FOR_CAPTURE_SURFACE_SCRIPT = `Promise.race([
+  new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  }),
+  new Promise((resolve) => setTimeout(resolve, 250)),
+])`;
 
 async function withExportTimeout<T>(
   operation: Promise<T>,
@@ -223,6 +233,9 @@ export class ExportService {
   private async chooseOutputPath(
     settings: CaptureSettings,
   ): Promise<string | undefined> {
+    if (this.options.resolveOutputPath) {
+      return this.options.resolveOutputPath(settings);
+    }
     const defaultPath = path.join(
       app.getPath('pictures'),
       `${targetFilePart(this.options.targetBrowser.currentUrl)}-${dateStamp(new Date())}-${settings.outputWidth}x${settings.outputHeight}.png`,
@@ -312,17 +325,25 @@ export class ExportService {
         '書き出しキャンバスの描画',
       );
 
-      const captured = await withExportTimeout(
-        exportWindow.webContents.capturePage(
-          {
-            x: 0,
-            y: 0,
-            width: settings.outputWidth,
-            height: settings.outputHeight,
-          },
-          { stayHidden: true, stayAwake: true },
-        ),
-        '完成画像の取得',
+      if (this.options.prepareHeadlessCaptureSurface) {
+        exportWindow.show();
+        exportWindow.setContentSize(
+          settings.outputWidth,
+          settings.outputHeight,
+        );
+        exportWindow.webContents.invalidate();
+        await withExportTimeout(
+          exportWindow.webContents.executeJavaScript(
+            WAIT_FOR_CAPTURE_SURFACE_SCRIPT,
+            true,
+          ),
+          '書き出し画面の再描画',
+        );
+      }
+
+      const captured = await this.captureExportWindow(
+        exportWindow,
+        settings,
       );
       if (captured.isEmpty()) {
         throw new Error('完成画像の生成に失敗しました。');
@@ -349,6 +370,25 @@ export class ExportService {
         this.activeExportWindow = null;
       }
     }
+  }
+
+  private async captureExportWindow(
+    exportWindow: BrowserWindow,
+    settings: CaptureSettings,
+  ): Promise<NativeImage> {
+    const bounds = {
+      x: 0,
+      y: 0,
+      width: settings.outputWidth,
+      height: settings.outputHeight,
+    };
+    return withExportTimeout(
+      exportWindow.webContents.capturePage(bounds, {
+        stayHidden: !this.options.prepareHeadlessCaptureSurface,
+        stayAwake: true,
+      }),
+      '完成画像の取得',
+    );
   }
 
   private assertNotDisposed(): void {

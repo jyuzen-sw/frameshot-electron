@@ -23,6 +23,13 @@ import { TargetBrowserController } from './target-browser-controller';
 
 const shouldQuitForSquirrel =
   process.platform === 'win32' && squirrelStartup;
+const isHeadlessE2e =
+  app.isPackaged &&
+  process.argv.includes('--frameshot-e2e-headless') &&
+  process.env.FRAMESHOT_E2E_HEADLESS === '1';
+// Ozone headless keeps hidden BrowserWindows on a 1x1 surface.
+const needsVisibleHeadlessSurface =
+  isHeadlessE2e && process.platform === 'linux';
 
 app.setName('FrameShot');
 if (process.platform === 'win32') {
@@ -101,6 +108,13 @@ async function createMainWindow(): Promise<void> {
     rendererRoot: MAIN_WINDOW_VITE_DEV_SERVER_URL
       ? undefined
       : bundledRendererRoot,
+    ...(isHeadlessE2e
+      ? {
+          resolveOutputPath: async () =>
+            path.join(app.getPath('userData'), 'e2e-export.png'),
+          prepareHeadlessCaptureSurface: needsVisibleHeadlessSurface,
+        }
+      : {}),
   });
   const removeIpcHandlers = registerIpcHandlers({
     mainWindow: window,
@@ -130,7 +144,16 @@ async function createMainWindow(): Promise<void> {
     if (mainWindow === window) mainWindow = null;
   });
 
-  window.once('ready-to-show', () => window.show());
+  window.once('ready-to-show', () => {
+    if (isHeadlessE2e) {
+      console.log(
+        'FrameShot E2E headless mode: using deterministic file exports.',
+      );
+    }
+    if (!isHeadlessE2e || needsVisibleHeadlessSurface) {
+      window.show();
+    }
+  });
 
   try {
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {

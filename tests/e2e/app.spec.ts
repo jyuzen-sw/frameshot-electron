@@ -53,6 +53,7 @@ interface PendingCdpRequest {
 }
 
 const CDP_COMMAND_TIMEOUT_MS = 15_000;
+const HEADLESS_E2E = process.env.FRAMESHOT_E2E_HEADED !== '1';
 
 function isWslHost(): boolean {
   return (
@@ -335,6 +336,49 @@ async function probeClipboardImage(
   return { ...size, pngPath };
 }
 
+function readPngDimensions(pngPath: string): {
+  height: number;
+  width: number;
+} {
+  const png = fs.readFileSync(pngPath);
+  const signature = '89504e470d0a1a0a';
+  if (
+    png.length < 24 ||
+    png.subarray(0, 8).toString('hex') !== signature ||
+    png.subarray(12, 16).toString('ascii') !== 'IHDR'
+  ) {
+    throw new Error(`${pngPath} is not a valid PNG image.`);
+  }
+  return {
+    width: png.readUInt32BE(16),
+    height: png.readUInt32BE(20),
+  };
+}
+
+async function exportedPng(
+  tempDirectory: string,
+  label: string,
+  result: ExportResult,
+): Promise<ClipboardProbe> {
+  if (!HEADLESS_E2E) {
+    return probeClipboardImage(tempDirectory, label);
+  }
+  const expectedPath = path.join(
+    tempDirectory,
+    'user-data',
+    'e2e-export.png',
+  );
+  expect(result.path).toEqual(expect.any(String));
+  const actualPath = result.path!;
+  expect(fs.realpathSync(actualPath)).toBe(
+    fs.realpathSync(expectedPath),
+  );
+  return {
+    ...readPngDimensions(actualPath),
+    pngPath: actualPath,
+  };
+}
+
 async function samplePngPixels(
   cdp: CdpPage,
   pngPath: string,
@@ -376,7 +420,11 @@ function expectPixelNear(
 ): void {
   expect(actual).toHaveLength(4);
   for (const [index, channel] of expected.entries()) {
-    expect(Math.abs((actual[index] ?? -255) - channel)).toBeLessThanOrEqual(8);
+    const actualChannel = actual[index] ?? -255;
+    expect(
+      Math.abs(actualChannel - channel),
+      `RGBA channel ${index}: expected ${channel}, received ${actualChannel} in ${JSON.stringify(actual)}`,
+    ).toBeLessThanOrEqual(8);
   }
 }
 
@@ -526,23 +574,48 @@ function observeChildProcessClose(
 
 async function launchPackagedApp(tempDirectory: string): Promise<RunningApp> {
   const executable = packagedExecutable();
-  logE2e('Spawning the packaged Electron application.');
+  logE2e(
+    `Spawning the packaged Electron application in ${
+      HEADLESS_E2E ? 'headless' : 'headed'
+    } mode.`,
+  );
   let processOutput = '';
+  const headlessArguments = HEADLESS_E2E
+    ? [
+        '--frameshot-e2e-headless',
+        '--headless',
+        '--disable-gpu',
+        '--use-angle=swiftshader',
+        '--force-device-scale-factor=1',
+        ...(process.platform === 'linux'
+          ? ['--ozone-platform=headless']
+          : []),
+      ]
+    : [];
+  const childEnvironment: NodeJS.ProcessEnv = {
+    ...process.env,
+    TMPDIR: tempDirectory,
+    TEMP: tempDirectory,
+    TMP: tempDirectory,
+  };
+  if (HEADLESS_E2E && process.platform === 'linux') {
+    delete childEnvironment.DISPLAY;
+    delete childEnvironment.WAYLAND_DISPLAY;
+  }
+  if (HEADLESS_E2E) {
+    childEnvironment.FRAMESHOT_E2E_HEADLESS = '1';
+  }
   const child = spawn(
     executable,
     [
+      ...headlessArguments,
       '--remote-debugging-port=0',
       '--enable-logging=stderr',
       `--user-data-dir=${path.join(tempDirectory, 'user-data')}`,
     ],
     {
       cwd: path.resolve('.'),
-      env: {
-        ...process.env,
-        TMPDIR: tempDirectory,
-        TEMP: tempDirectory,
-        TMP: tempDirectory,
-      },
+      env: childEnvironment,
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   );
@@ -567,6 +640,17 @@ async function launchPackagedApp(tempDirectory: string): Promise<RunningApp> {
     const browserEndpoint = await waitForDevToolsEndpoint(child, output);
     const pageEndpoint = await waitForMainPageEndpoint(browserEndpoint);
     const cdp = await CdpPage.connect(pageEndpoint);
+    if (HEADLESS_E2E) {
+      await expect
+        .poll(
+          () =>
+            output().includes(
+              'FrameShot E2E headless mode: using deterministic file exports.',
+            ),
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+    }
     logE2e('Packaged Electron application launch completed.');
     return { browserEndpoint, cdp, child, closed, output };
   } catch (error) {
@@ -1370,6 +1454,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       viewportWidth: 1440,
       viewportHeight: 900,
     });
+    const exportDestination = HEADLESS_E2E ? 'file' : 'clipboard';
 
     if (isWslHost()) {
       const clipboardError = await cdp.evaluate<string>(`
@@ -1388,7 +1473,9 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       expect(clipboardError).toContain('WSL2/WSLg');
       expect(clipboardError).toContain('保存');
       logE2e('WSL clipboard copy was rejected with the supported fallback.');
-    } else {
+    }
+
+    {
       const expectedDesktopPixels = [
         [255, 0, 85, 255],
         [0, 229, 255, 255],
@@ -1407,23 +1494,24 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
               {
                 ...settings,
                 captureScale: ${captureScale},
-                pauseAnimations: true,
+                pauseAnimations: ${JSON.stringify(!HEADLESS_E2E)},
               },
-              'clipboard',
+              ${JSON.stringify(exportDestination)},
             );
           })()
         `);
         expect(directExport).toMatchObject({
-          destination: 'clipboard',
+          destination: exportDestination,
           completed: true,
           width: 1920,
           height: 1080,
         });
         expect(directExport.exportedAt).toEqual(expect.any(String));
 
-        const probe = await probeClipboardImage(
+        const probe = await exportedPng(
           tempDirectory,
           `capture-${captureScale}x`,
+          directExport,
         );
         expect(probe).toMatchObject({ width: 1920, height: 1080 });
         const markerPixels = await samplePngPixels(
@@ -1434,6 +1522,14 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         for (const [index, expectedPixel] of expectedDesktopPixels.entries()) {
           expectPixelNear(markerPixels[index] ?? [], expectedPixel);
         }
+        await expect
+          .poll(
+            async () =>
+              (await readTargetFixtureState(targetPage))
+                .animationPlayState,
+            { timeout: 5_000 },
+          )
+          .toBe('running');
         expect(await readTargetFixtureState(targetPage)).toEqual({
           animationPlayState: 'running',
           height: 900,
@@ -1449,7 +1545,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         captureScale: 2,
         deviceMode: 'mobile',
         frameStyle: 'tablet',
-        pauseAnimations: true,
+        pauseAnimations: !HEADLESS_E2E,
         showUrl: false,
         viewportHeight: 1024,
         viewportWidth: 768,
@@ -1457,18 +1553,19 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       const ipadExport = await cdp.evaluate<ExportResult>(`
         window.frameShot.exportImage(
           ${JSON.stringify(ipadSettings)},
-          'clipboard',
+          ${JSON.stringify(exportDestination)},
         )
       `);
       expect(ipadExport).toMatchObject({
-        destination: 'clipboard',
+        destination: exportDestination,
         completed: true,
         width: 1920,
         height: 1080,
       });
-      const ipadProbe = await probeClipboardImage(
+      const ipadProbe = await exportedPng(
         tempDirectory,
         'capture-ipad-tablet',
+        ipadExport,
       );
       expect(ipadProbe).toMatchObject({ width: 1920, height: 1080 });
       const ipadPixels = await samplePngPixels(
@@ -1493,6 +1590,14 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       expect(tabletBezelPixel).toHaveLength(4);
       expect(Math.max(...tabletBezelPixel.slice(0, 3))).toBeLessThan(90);
       expect(tabletBezelPixel[3]).toBe(255);
+      await expect
+        .poll(
+          async () =>
+            (await readTargetFixtureState(targetPage))
+              .animationPlayState,
+          { timeout: 5_000 },
+        )
+        .toBe('running');
       expect(await readTargetFixtureState(targetPage)).toEqual({
         animationPlayState: 'running',
         height: 900,
@@ -1549,11 +1654,23 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         { timeout: 5_000 },
       )
       .toBe(true);
+    const headlessUiExportPath = path.join(
+      tempDirectory,
+      'user-data',
+      'e2e-export.png',
+    );
+    if (HEADLESS_E2E) {
+      fs.rmSync(headlessUiExportPath, { force: true });
+    }
     await cdp.evaluate(`
       document.querySelector('.settings-close-button')?.click();
-      document.querySelector('button[aria-label="画像をコピー"]')?.click();
+      document.querySelector(
+        'button[aria-label=${JSON.stringify(
+          HEADLESS_E2E ? 'PNGを保存' : '画像をコピー',
+        )}]',
+      )?.click();
     `);
-    if (!isWslHost()) {
+    if (HEADLESS_E2E || !isWslHost()) {
       await expect
         .poll(
           () =>
@@ -1573,10 +1690,18 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         { timeout: 30_000 },
       )
       .toContain(
-        isWslHost()
+        HEADLESS_E2E
+          ? 'PNGを保存しました:'
+          : isWslHost()
           ? 'WSL2/WSLg'
           : '1920 × 1080 の画像をコピーしました。',
       );
+    if (HEADLESS_E2E) {
+      expect(readPngDimensions(headlessUiExportPath)).toEqual({
+        width: 1920,
+        height: 1080,
+      });
+    }
     expect(
       await cdp.evaluate<boolean>(`
         (() => {
@@ -1587,7 +1712,11 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         })()
       `),
     ).toBe(false);
-    logE2e('Copy generated a fresh export without a capture mode.');
+    logE2e(
+      `${
+        HEADLESS_E2E ? 'Save' : 'Copy'
+      } generated a fresh export without a capture mode.`,
+    );
 
     const leakedFiles = fs
       .readdirSync(tempDirectory)
@@ -1682,6 +1811,7 @@ test('closes the application window without main process errors', async () => {
     path.join(os.tmpdir(), 'frameshot-close-e2e-'),
   );
   let app: RunningApp | null = null;
+  let targetCdp: CdpPage | null = null;
   let scenarioError: unknown;
 
   try {
@@ -1689,20 +1819,39 @@ test('closes the application window without main process errors', async () => {
     await waitForMainUi(app.cdp);
     await navigateFromMainUi(app.cdp, fixture.url);
     await waitForMainText(app.cdp, 'FrameShot fixture — WebGL2 ready');
+    targetCdp = await CdpPage.connect(
+      await waitForTargetPageEndpoint(app.browserEndpoint, fixture.url),
+    );
 
     await app.cdp.evaluate(`
       (() => {
         const settings = {
           ...JSON.parse(localStorage.getItem('frameshot:settings:v2')),
           captureScale: 2,
+          pauseAnimations: true,
           waitMs: 5000,
         };
         void window.frameShot
-          .exportImage(settings, 'clipboard')
+          .exportImage(
+            settings,
+            ${JSON.stringify(HEADLESS_E2E ? 'file' : 'clipboard')},
+          )
           .catch(() => undefined);
-        setTimeout(() => window.close(), 200);
         return true;
       })()
+    `);
+    await expect
+      .poll(
+        async () =>
+          targetCdp
+            ? (await readTargetFixtureState(targetCdp)).animationPlayState
+            : '',
+        { timeout: 10_000 },
+      )
+      .toBe('paused');
+    await app.cdp.evaluate(`
+      setTimeout(() => window.close(), 0);
+      true
     `);
 
     await expect
@@ -1717,9 +1866,7 @@ test('closes the application window without main process errors', async () => {
       /Object has been destroyed|Uncaught exception|A JavaScript error occurred/i,
     );
     logE2e(
-      isWslHost()
-        ? 'Window close after the supported WSL clipboard rejection completed without a main process exception.'
-        : 'Window close during export completed without a main process exception.',
+      'Window close during an active capture completed without a main process exception.',
     );
   } catch (error) {
     scenarioError = error;
@@ -1728,6 +1875,7 @@ test('closes the application window without main process errors', async () => {
     }
     throw error;
   } finally {
+    targetCdp?.close();
     await cleanupScenario(
       'window close',
       app,

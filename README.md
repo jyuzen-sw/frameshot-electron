@@ -136,14 +136,16 @@ npm test              # Vitest
 npm run package       # 現在のOS向けにパッケージ化
 npm run make:windows  # Windows x64用インストーラー／配布物を生成
 npm run generate:windows-icon # SVGからWindowsアイコンを再生成
-npm run test:e2e      # パッケージ化後にPlaywrightでE2E
+npm run test:e2e      # パッケージ化後、Windowを表示せずPlaywrightでE2E
 npm run verify        # typecheck + unit test
 npm run verify:fuses  # パッケージ済みElectron Fuseを検証
 ```
 
 成果物は `out/` 以下に生成されます。
 
-現在の配布ターゲットはWindows x64だけです。Squirrel用の `FrameShot-Setup.exe`、NuGetパッケージ、`RELEASES` を生成します。Electron FuseでRunAsNode、`NODE_OPTIONS`、CLI inspect、ASAR外からのアプリ読込を無効化し、ASAR integrityとCookie暗号化を有効化しています。CIはpull requestと `main` pushでLinux上のaudit、型検査、単体テストを実行し、`main` pushではWindowsとLinux/Xvfbのパッケージ済みアプリをE2E検証します。`v*.*.*` タグでは既存のWindows Squirrel成果物に加え、検証・開発用のLinux x64パッケージをworkflow artifactとして保存します。
+E2Eは既定でElectronのheadless backendを使用し、保存ダイアログやOSクリップボードへ依存せず、テスト専用user data内のPNGを検証します。LinuxではOzone headlessを使い、`DISPLAY`と`WAYLAND_DISPLAY`を渡さず実行します。WSL以外でGUI displayとOSクリップボードを利用できる環境では、`FRAMESHOT_E2E_HEADED=1`を設定して従来のheaded検証も実行できます。
+
+現在の配布ターゲットはWindows x64だけです。Squirrel用の `FrameShot-Setup.exe`、NuGetパッケージ、`RELEASES` を生成します。Electron FuseでRunAsNode、`NODE_OPTIONS`、CLI inspect、ASAR外からのアプリ読込を無効化し、ASAR integrityとCookie暗号化を有効化しています。CIはpull requestと `main` pushでLinux上のaudit、型検査、単体テストを実行し、`main` pushではWindowsとLinuxのパッケージ済みアプリをheadless E2Eで検証します。`v*.*.*` タグでは既存のWindows Squirrel成果物に加え、検証・開発用のLinux x64パッケージをworkflow artifactとして保存します。
 
 `LoadBrowserProcessSpecificV8Snapshot` Fuseは無効です。有効化には `browser_v8_context_snapshot.bin` の同梱が必要ですが、検証したElectron 43配布物では有効化すると起動時にfatal errorになりました。Windows成果物へ専用snapshotを生成・同梱する工程を追加するまでは、全rendererのNode integrationを無効にする現在の分離を維持します。
 
