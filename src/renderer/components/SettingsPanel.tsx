@@ -203,11 +203,12 @@ export function SettingsPanel({
         </section>
 
         <section className="settings-section">
-          <header><span>02</span><div><strong>フレーム</strong><small>ブラウザ・スマホ・枠なし</small></div></header>
+          <header><span>02</span><div><strong>フレーム</strong><small>ブラウザ・スマホ・タブレット・枠なし</small></div></header>
           <div className="frame-selector">
-            <button type="button" className={settings.frameStyle === 'browser' ? 'active' : ''} onClick={() => setFrame('browser')}><MonitorIcon /><span>Browser</span></button>
-            <button type="button" className={settings.frameStyle === 'phone' ? 'active' : ''} onClick={() => setFrame('phone')}><PhoneIcon /><span>Phone</span></button>
-            <button type="button" className={settings.frameStyle === 'none' ? 'active' : ''} onClick={() => setFrame('none')}><span className="frame-none-icon">□</span><span>None</span></button>
+            <button type="button" aria-pressed={settings.frameStyle === 'browser'} className={settings.frameStyle === 'browser' ? 'active' : ''} onClick={() => setFrame('browser')}><MonitorIcon /><span>Browser</span></button>
+            <button type="button" aria-pressed={settings.frameStyle === 'phone'} className={settings.frameStyle === 'phone' ? 'active' : ''} onClick={() => setFrame('phone')}><PhoneIcon /><span>Phone</span></button>
+            <button type="button" aria-pressed={settings.frameStyle === 'tablet'} className={settings.frameStyle === 'tablet' ? 'active' : ''} onClick={() => setFrame('tablet')}><span className="frame-tablet-icon" aria-hidden="true" /><span>Tablet</span></button>
+            <button type="button" aria-pressed={settings.frameStyle === 'none'} className={settings.frameStyle === 'none' ? 'active' : ''} onClick={() => setFrame('none')}><span className="frame-none-icon">□</span><span>None</span></button>
           </div>
           <RangeField label="背景とフレームの余白" value={settings.margin} min={0} max={420} suffix="px" onChange={(value) => patch('margin', value)} />
           <RangeField label="角丸" value={settings.cornerRadius} min={0} max={80} suffix="px" onChange={(value) => patch('cornerRadius', value)} />

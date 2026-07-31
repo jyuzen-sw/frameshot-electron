@@ -18,6 +18,21 @@ describe('capture settings validation', () => {
     }
   });
 
+  it('accepts the tablet frame and rejects unknown frame styles', () => {
+    expect(
+      validateCaptureSettings({
+        ...DEFAULT_SETTINGS,
+        frameStyle: 'tablet',
+      }).frameStyle,
+    ).toBe('tablet');
+    expect(() =>
+      validateCaptureSettings({
+        ...DEFAULT_SETTINGS,
+        frameStyle: 'watch',
+      }),
+    ).toThrow('フレーム種別が不正です');
+  });
+
   it('rejects oversized output and malformed colors', () => {
     expect(() => validateCaptureSettings({ ...DEFAULT_SETTINGS, outputWidth: 9000 })).toThrow();
     expect(() => validateCaptureSettings({ ...DEFAULT_SETTINGS, gradientFrom: 'lavender' })).toThrow();

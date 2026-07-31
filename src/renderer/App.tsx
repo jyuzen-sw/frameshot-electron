@@ -6,6 +6,7 @@ import {
 } from 'react';
 import {
   DEFAULT_SETTINGS,
+  applyCustomViewportMode,
   applyViewportPreset,
   cloneSettings,
 } from '@shared/presets';
@@ -198,7 +199,9 @@ export function App(): React.JSX.Element {
 
   const openCustomViewport = useCallback(
     (deviceMode: DeviceMode) => {
-      setSettings((current) => ({ ...current, deviceMode }));
+      setSettings((current) =>
+        applyCustomViewportMode(current, deviceMode),
+      );
       setSettingsPanelOpen(true);
       setFocusViewportRequest((current) => current + 1);
     },

@@ -1,4 +1,4 @@
-export type FrameStyle = 'browser' | 'phone' | 'none';
+export type FrameStyle = 'browser' | 'phone' | 'tablet' | 'none';
 export type DeviceMode = 'desktop' | 'mobile';
 export type BackgroundStyle = 'soft' | 'clean';
 export type CaptureScale = 1 | 2;
@@ -36,6 +36,7 @@ export interface ViewportPreset {
   id: string;
   name: string;
   deviceMode: DeviceMode;
+  frameStyle: FrameStyle;
   width: number;
   height: number;
 }
@@ -126,6 +127,12 @@ export interface CompositionLayout {
   browserBarHeight: number;
   browserAddressHeight: number;
   phoneBezel: {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  };
+  tabletBezel: {
     left: number;
     top: number;
     right: number;

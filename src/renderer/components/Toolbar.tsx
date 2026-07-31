@@ -53,7 +53,7 @@ function moveMenuFocus(
   if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
   const items = Array.from(
     event.currentTarget.querySelectorAll<HTMLButtonElement>(
-      'button[role="menuitem"]',
+      'button[role="menuitemradio"]',
     ),
   );
   if (items.length === 0) return;
@@ -69,6 +69,132 @@ function moveMenuFocus(
         : items.length - 1
       : (currentIndex + delta + items.length) % items.length;
   items[nextIndex]?.focus();
+}
+
+interface ViewportMenuListProps {
+  deviceMode: DeviceMode;
+  settings: CaptureSettings;
+  onViewportPreset: (preset: ViewportPreset) => void;
+  onCustomViewport: (deviceMode: DeviceMode) => void;
+  onDismiss: () => void;
+}
+
+export function ViewportMenuList({
+  deviceMode,
+  settings,
+  onViewportPreset,
+  onCustomViewport,
+  onDismiss,
+}: ViewportMenuListProps): React.JSX.Element {
+  const exactPreset = findViewportPreset(settings);
+  const label = deviceMode === 'desktop' ? 'Desktop' : 'Phone';
+  const presets = viewportPresetsFor(deviceMode);
+  const presetGroups =
+    deviceMode === 'desktop'
+      ? [{ id: 'desktop', label: 'Desktop', presets }]
+      : [
+          {
+            id: 'phone',
+            label: 'Phone',
+            presets: presets.filter(
+              (preset) => preset.frameStyle === 'phone',
+            ),
+          },
+          {
+            id: 'ipad',
+            label: 'iPad',
+            presets: presets.filter(
+              (preset) => preset.frameStyle === 'tablet',
+            ),
+          },
+        ];
+
+  return (
+    <div
+      className="viewport-menu-list"
+      role="menu"
+      aria-label={`${label} viewport`}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          onDismiss();
+          return;
+        }
+        moveMenuFocus(event);
+      }}
+    >
+      {presetGroups.map((group) => {
+        const headingId = `viewport-${deviceMode}-${group.id}-heading`;
+        const hasVisibleHeading = deviceMode === 'mobile';
+        return (
+          <div
+            className="viewport-menu-group"
+            role="group"
+            aria-label={
+              hasVisibleHeading ? undefined : `${group.label} presets`
+            }
+            aria-labelledby={hasVisibleHeading ? headingId : undefined}
+            key={group.id}
+          >
+            {hasVisibleHeading && (
+              <span
+                className="viewport-menu-heading"
+                id={headingId}
+              >
+                {group.label}
+              </span>
+            )}
+            {group.presets.map((preset) => {
+              const selected = exactPreset?.id === preset.id;
+              return (
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={selected}
+                  key={preset.id}
+                  className={selected ? 'selected' : ''}
+                  onClick={() => {
+                    onViewportPreset(preset);
+                    onDismiss();
+                  }}
+                >
+                  <span>
+                    <b>{preset.name}</b>
+                    <small>
+                      {preset.width} × {preset.height}
+                    </small>
+                  </span>
+                  {selected && <i aria-hidden="true">✓</i>}
+                </button>
+              );
+            })}
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        role="menuitemradio"
+        aria-checked={
+          settings.deviceMode === deviceMode && !exactPreset
+        }
+        className={
+          settings.deviceMode === deviceMode && !exactPreset
+            ? 'selected custom'
+            : 'custom'
+        }
+        onClick={() => {
+          onCustomViewport(deviceMode);
+          onDismiss();
+        }}
+      >
+        <span><b>Custom…</b><small>幅と高さを入力</small></span>
+        {settings.deviceMode === deviceMode && !exactPreset && (
+          <i aria-hidden="true">✓</i>
+        )}
+      </button>
+    </div>
+  );
 }
 
 export function Toolbar({
@@ -91,7 +217,23 @@ export function Toolbar({
 }: ToolbarProps): React.JSX.Element {
   const [openMenu, setOpenMenu] = useState<DeviceMode | null>(null);
   const viewportMenusRef = useRef<HTMLDivElement>(null);
+  const viewportTriggerRefs = useRef<
+    Record<DeviceMode, HTMLButtonElement | null>
+  >({
+    desktop: null,
+    mobile: null,
+  });
   const exactPreset = findViewportPreset(settings);
+
+  const closeViewportMenu = (
+    deviceMode: DeviceMode,
+    restoreTriggerFocus: boolean,
+  ): void => {
+    setOpenMenu(null);
+    if (restoreTriggerFocus) {
+      viewportTriggerRefs.current[deviceMode]?.focus();
+    }
+  };
 
   useEffect(() => {
     if (!openMenu) return;
@@ -104,7 +246,9 @@ export function Toolbar({
       }
     };
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') setOpenMenu(null);
+      if (event.key === 'Escape') {
+        closeViewportMenu(openMenu, true);
+      }
     };
     document.addEventListener('pointerdown', closeOnPointer);
     window.addEventListener('keydown', closeOnEscape);
@@ -118,7 +262,7 @@ export function Toolbar({
     deviceMode: DeviceMode,
   ): React.JSX.Element => {
     const active = settings.deviceMode === deviceMode;
-    const label = deviceMode === 'desktop' ? 'Desktop' : 'Mobile';
+    const label = deviceMode === 'desktop' ? 'Desktop' : 'Phone';
     const Icon = deviceMode === 'desktop' ? MonitorIcon : PhoneIcon;
     const expanded = openMenu === deviceMode;
     return (
@@ -127,6 +271,9 @@ export function Toolbar({
         data-device-mode={deviceMode}
       >
         <button
+          ref={(trigger) => {
+            viewportTriggerRefs.current[deviceMode] = trigger;
+          }}
           type="button"
           className="viewport-menu-trigger"
           aria-haspopup="menu"
@@ -163,43 +310,13 @@ export function Toolbar({
           <ChevronDownIcon />
         </button>
         {expanded && (
-          <div
-            className="viewport-menu-list"
-            role="menu"
-            aria-label={`${label} viewport`}
-            onKeyDown={moveMenuFocus}
-          >
-            {viewportPresetsFor(deviceMode).map((preset) => {
-              const selected = exactPreset?.id === preset.id;
-              return (
-                <button
-                  type="button"
-                  role="menuitem"
-                  key={preset.id}
-                  className={selected ? 'selected' : ''}
-                  onClick={() => {
-                    onViewportPreset(preset);
-                    setOpenMenu(null);
-                  }}
-                >
-                  <span><b>{preset.name}</b><small>{preset.width} × {preset.height}</small></span>
-                  {selected && <i aria-label="選択中">✓</i>}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              role="menuitem"
-              className={active && !exactPreset ? 'selected custom' : 'custom'}
-              onClick={() => {
-                onCustomViewport(deviceMode);
-                setOpenMenu(null);
-              }}
-            >
-              <span><b>Custom…</b><small>幅と高さを入力</small></span>
-              {active && !exactPreset && <i aria-label="選択中">✓</i>}
-            </button>
-          </div>
+          <ViewportMenuList
+            deviceMode={deviceMode}
+            settings={settings}
+            onViewportPreset={onViewportPreset}
+            onCustomViewport={onCustomViewport}
+            onDismiss={() => closeViewportMenu(deviceMode, true)}
+          />
         )}
       </div>
     );

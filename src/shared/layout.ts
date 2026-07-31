@@ -7,6 +7,9 @@ const PHONE_TOP = 54;
 const PHONE_BOTTOM = 38;
 const PHONE_FRAME_RADIUS = 54;
 const PHONE_SCREEN_RADIUS = 38;
+const TABLET_BEZEL = 28;
+const TABLET_FRAME_RADIUS = 42;
+const TABLET_SCREEN_RADIUS = 22;
 const BROWSER_ADDRESS_HEIGHT_RATIO = 0.56;
 
 function clamp(value: number, minimum: number, maximum: number): number {
@@ -36,6 +39,11 @@ export function calculateCompositionLayout(
     intrinsicHeight += PHONE_TOP + PHONE_BOTTOM;
     screenOffsetX = PHONE_LEFT;
     screenOffsetY = PHONE_TOP;
+  } else if (settings.frameStyle === 'tablet') {
+    intrinsicWidth += TABLET_BEZEL * 2;
+    intrinsicHeight += TABLET_BEZEL * 2;
+    screenOffsetX = TABLET_BEZEL;
+    screenOffsetY = TABLET_BEZEL;
   }
 
   const availableWidth = Math.max(1, outputWidth - margin * 2);
@@ -55,13 +63,17 @@ export function calculateCompositionLayout(
   const frameRadius =
     settings.frameStyle === 'phone'
       ? PHONE_FRAME_RADIUS * scale
-      : settings.cornerRadius;
+      : settings.frameStyle === 'tablet'
+        ? TABLET_FRAME_RADIUS * scale
+        : settings.cornerRadius;
   const screenRadius =
     settings.frameStyle === 'phone'
       ? PHONE_SCREEN_RADIUS * scale
-      : settings.frameStyle === 'none'
-        ? settings.cornerRadius
-        : Math.max(0, settings.cornerRadius - 2);
+      : settings.frameStyle === 'tablet'
+        ? TABLET_SCREEN_RADIUS * scale
+        : settings.frameStyle === 'none'
+          ? settings.cornerRadius
+          : Math.max(0, settings.cornerRadius - 2);
 
   return {
     scale,
@@ -89,6 +101,12 @@ export function calculateCompositionLayout(
       top: settings.frameStyle === 'phone' ? PHONE_TOP * scale : 0,
       right: settings.frameStyle === 'phone' ? PHONE_RIGHT * scale : 0,
       bottom: settings.frameStyle === 'phone' ? PHONE_BOTTOM * scale : 0,
+    },
+    tabletBezel: {
+      left: settings.frameStyle === 'tablet' ? TABLET_BEZEL * scale : 0,
+      top: settings.frameStyle === 'tablet' ? TABLET_BEZEL * scale : 0,
+      right: settings.frameStyle === 'tablet' ? TABLET_BEZEL * scale : 0,
+      bottom: settings.frameStyle === 'tablet' ? TABLET_BEZEL * scale : 0,
     },
   };
 }
