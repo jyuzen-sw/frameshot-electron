@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   type KeyboardEvent,
+  type MouseEvent,
   type RefObject,
 } from 'react';
 import {
@@ -83,6 +84,12 @@ interface ViewportMenuListProps {
   onDismiss: (restoreTriggerFocus: boolean) => void;
 }
 
+function shouldRestoreTriggerFocus(
+  event: MouseEvent<HTMLButtonElement>,
+): boolean {
+  return event.detail === 0;
+}
+
 export function ViewportMenuList({
   deviceMode,
   settings,
@@ -158,9 +165,9 @@ export function ViewportMenuList({
                   aria-checked={selected}
                   key={preset.id}
                   className={selected ? 'selected' : ''}
-                  onClick={() => {
+                  onClick={(event) => {
                     onViewportPreset(preset);
-                    onDismiss(false);
+                    onDismiss(shouldRestoreTriggerFocus(event));
                   }}
                 >
                   <span>

@@ -54,6 +54,10 @@ interface PendingCdpRequest {
 
 const CDP_COMMAND_TIMEOUT_MS = 15_000;
 const HEADLESS_E2E = process.env.FRAMESHOT_E2E_HEADED !== '1';
+const KEYBOARD_INPUT = {
+  ArrowDown: { code: 'ArrowDown', windowsVirtualKeyCode: 40 },
+  Enter: { code: 'Enter', text: '\r', windowsVirtualKeyCode: 13 },
+} as const;
 
 function isWslHost(): boolean {
   return (
@@ -160,6 +164,25 @@ class CdpPage {
       );
     }
     return response.result?.result?.value as T;
+  }
+
+  public async pressKey(key: keyof typeof KEYBOARD_INPUT): Promise<void> {
+    const input = KEYBOARD_INPUT[key];
+    const text = 'text' in input ? input.text : undefined;
+    await this.send('Input.dispatchKeyEvent', {
+      type: text ? 'keyDown' : 'rawKeyDown',
+      key,
+      code: input.code,
+      text,
+      unmodifiedText: text,
+      windowsVirtualKeyCode: input.windowsVirtualKeyCode,
+    });
+    await this.send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key,
+      code: input.code,
+      windowsVirtualKeyCode: input.windowsVirtualKeyCode,
+    });
   }
 
   public close(): void {
@@ -1611,6 +1634,51 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         `document.body.dataset.frameshotMenuState ?? ''`,
       ),
     ).toBe('preserved');
+
+    await cdp.evaluate(`
+      document.querySelector(
+        '[data-device-mode="mobile"] .viewport-menu-trigger',
+      )?.focus()
+    `);
+    await cdp.pressKey('ArrowDown');
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="mobile"] [role="menu"]',
+            ) !== null &&
+              document.activeElement?.getAttribute('role') ===
+                'menuitemradio'
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.pressKey('Enter');
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<Record<string, boolean>>(`
+            ({
+              menuClosed: document.querySelector(
+                '[data-device-mode="mobile"] [role="menu"]',
+              ) === null,
+              targetResumed: !document.querySelector(
+                '.composition-page-slot',
+              )?.classList.contains('is-suspended'),
+              triggerFocused:
+                document.activeElement === document.querySelector(
+                  '[data-device-mode="mobile"] .viewport-menu-trigger',
+                ),
+            })
+          `),
+        { timeout: 5_000 },
+      )
+      .toEqual({
+        menuClosed: true,
+        targetResumed: true,
+        triggerFocused: true,
+      });
 
     await cdp.evaluate(`
       document.querySelector(
