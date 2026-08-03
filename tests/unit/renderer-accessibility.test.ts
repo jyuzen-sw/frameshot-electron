@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_SETTINGS,
   GRADIENT_PRESETS,
+  MOBILE_DEVICE_PRESETS,
+  applyDevicePreset,
 } from '../../src/shared/presets';
 import type { CaptureSettings } from '../../src/shared/types';
 import { SettingsPanel } from '../../src/renderer/components/SettingsPanel';
@@ -17,6 +19,14 @@ function buttonMarkup(markup: string, label: string): string {
     .find((candidate) => candidate.includes(label));
   if (!button) throw new Error(`${label} button was not rendered.`);
   return button;
+}
+
+function labelledControlMarkup(markup: string, label: string): string {
+  const tag = markup.match(
+    new RegExp(`<(?:input|select)\\b[^>]*aria-label="${label}"[^>]*>`),
+  )?.[0];
+  if (!tag) throw new Error(`${label} control was not rendered.`);
+  return tag;
 }
 
 describe('renderer selection accessibility', () => {
@@ -102,6 +112,43 @@ describe('renderer selection accessibility', () => {
       'id="viewport-mobile-ipad-heading">iPad</span>',
     );
     expect(markup).not.toContain('aria-label="選択中"');
+  });
+
+  it('presents mobile output size as automatic and keeps page size editable', () => {
+    const settings = applyDevicePreset(
+      DEFAULT_SETTINGS,
+      MOBILE_DEVICE_PRESETS.find((preset) => preset.id === 'iphone-17')!,
+    );
+    const markup = renderToStaticMarkup(
+      createElement(SettingsPanel, {
+        settings,
+        currentHost: null,
+        certificateAllowed: false,
+        focusSizeRequest: 0,
+        focusSizeTarget: 'page',
+        onClose: vi.fn(),
+        onSettingsChange: vi.fn(),
+        onCertificateAllowed: vi.fn(),
+        onResetSession: vi.fn(),
+        onOpenDevTools: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('<em>AUTO</em>');
+    expect(markup).toContain(
+      'ページ・端末フレーム・余白を2×で書き出すサイズ',
+    );
+    expect(
+      labelledControlMarkup(markup, 'スクリーンショットサイズ 幅'),
+    ).toContain('readOnly=""');
+    expect(
+      labelledControlMarkup(markup, 'ページ表示サイズ 幅'),
+    ).not.toContain('readonly');
+    expect(markup).not.toContain('>16:9</button>');
+    expect(markup).toContain('書き出し予定 924 × 1868');
+    expect(markup).toContain(
+      '<select disabled=""><option value="1">1× 標準</option><option value="2" selected="">2× 高精細</option></select>',
+    );
   });
 
   it('presents desktop choices as screenshot resolutions with page sizes', () => {

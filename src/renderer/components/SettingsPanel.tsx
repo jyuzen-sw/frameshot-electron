@@ -1,5 +1,8 @@
 import { useEffect, useRef, type Ref } from 'react';
-import { calculateCompositionLayout } from '@shared/layout';
+import {
+  calculateCompositionLayout,
+  normalizeMobileOutput,
+} from '@shared/layout';
 import { GRADIENT_PRESETS } from '@shared/presets';
 import type {
   CaptureSettings,
@@ -47,6 +50,7 @@ interface NumberFieldProps {
   max: number;
   step?: number;
   suffix?: string;
+  readOnly?: boolean;
   inputRef?: Ref<HTMLInputElement>;
   onChange: (value: number) => void;
 }
@@ -59,6 +63,7 @@ function NumberField({
   max,
   step = 1,
   suffix,
+  readOnly = false,
   inputRef,
   onChange,
 }: NumberFieldProps): React.JSX.Element {
@@ -74,6 +79,7 @@ function NumberField({
           min={min}
           max={max}
           step={step}
+          readOnly={readOnly}
           onChange={(event) => {
             const next = Number(event.target.value);
             if (Number.isFinite(next)) onChange(next);
@@ -151,6 +157,7 @@ export function SettingsPanel({
   const screenshotWidthRef = useRef<HTMLInputElement>(null);
   const viewportWidthRef = useRef<HTMLInputElement>(null);
   const plannedExport = calculateCompositionLayout(settings).artboard;
+  const mobileOutput = settings.deviceMode === 'mobile';
 
   useEffect(() => {
     if (focusSizeRequest === 0) return;
@@ -166,13 +173,23 @@ export function SettingsPanel({
     field?.select();
   }, [focusSizeRequest, focusSizeTarget]);
 
+  const changeSettings = (
+    update: React.SetStateAction<CaptureSettings>,
+  ) => {
+    onSettingsChange((current) =>
+      normalizeMobileOutput(
+        typeof update === 'function' ? update(current) : update,
+      ),
+    );
+  };
+
   const patch = <K extends keyof CaptureSettings>(
     key: K,
     value: CaptureSettings[K],
-  ) => onSettingsChange((current) => ({ ...current, [key]: value }));
+  ) => changeSettings((current) => ({ ...current, [key]: value }));
 
   const setFrame = (frameStyle: FrameStyle) => {
-    onSettingsChange((current) => ({
+    changeSettings((current) => ({
       ...current,
       frameStyle,
       showUrl: frameStyle === 'browser' ? current.showUrl : false,
@@ -197,22 +214,28 @@ export function SettingsPanel({
       <div className="settings-scroll">
         <section className="settings-section">
           <header><span>01</span><div><strong>サイズ</strong><small>スクリーンショット全体とWebページの表示サイズ</small></div></header>
-          <div className="subheading"><span>スクリーンショットサイズ</span><em>MAX</em></div>
-          <p className="size-description">背景・余白・フレームを含む画像全体の最大サイズと縦横比</p>
+          <div className="subheading"><span>スクリーンショットサイズ</span><em>{mobileOutput ? 'AUTO' : 'MAX'}</em></div>
+          <p className="size-description">
+            {mobileOutput
+              ? 'ページ・端末フレーム・余白を2×で書き出すサイズ'
+              : '背景・余白・フレームを含む画像全体の最大サイズと縦横比'}
+          </p>
           <div className="two-column-fields">
-            <NumberField inputRef={screenshotWidthRef} ariaLabel="スクリーンショットサイズ 幅" label="幅" value={settings.outputWidth} min={320} max={7680} suffix="px" onChange={(value) => patch('outputWidth', value)} />
-            <NumberField ariaLabel="スクリーンショットサイズ 高さ" label="高さ" value={settings.outputHeight} min={320} max={7680} suffix="px" onChange={(value) => patch('outputHeight', value)} />
+            <NumberField inputRef={screenshotWidthRef} ariaLabel="スクリーンショットサイズ 幅" label="幅" value={settings.outputWidth} min={320} max={7680} suffix="px" readOnly={mobileOutput} onChange={(value) => patch('outputWidth', value)} />
+            <NumberField ariaLabel="スクリーンショットサイズ 高さ" label="高さ" value={settings.outputHeight} min={320} max={7680} suffix="px" readOnly={mobileOutput} onChange={(value) => patch('outputHeight', value)} />
           </div>
-          <div className="quick-size-row">
-            {[
-              ['16:9', 1920, 1080],
-              ['4:5', 1080, 1350],
-              ['1:1', 1600, 1600],
-              ['OGP', 1200, 630],
-            ].map(([label, width, height]) => (
-              <button type="button" key={String(label)} onClick={() => onSettingsChange((current) => ({ ...current, outputWidth: Number(width), outputHeight: Number(height) }))}>{label}</button>
-            ))}
-          </div>
+          {!mobileOutput && (
+            <div className="quick-size-row">
+              {[
+                ['16:9', 1920, 1080],
+                ['4:5', 1080, 1350],
+                ['1:1', 1600, 1600],
+                ['OGP', 1200, 630],
+              ].map(([label, width, height]) => (
+                <button type="button" key={String(label)} onClick={() => changeSettings((current) => ({ ...current, outputWidth: Number(width), outputHeight: Number(height) }))}>{label}</button>
+              ))}
+            </div>
+          )}
           <output className="planned-export-size">
             書き出し予定 {plannedExport.width} × {plannedExport.height}
           </output>
@@ -255,7 +278,7 @@ export function SettingsPanel({
                   aria-pressed={active}
                   title={gradient.name}
                   style={gradientPresetCssProperties(gradient)}
-                  onClick={() => onSettingsChange((current) => ({
+                  onClick={() => changeSettings((current) => ({
                     ...current,
                     gradientFrom: gradient.from,
                     gradientTo: gradient.to,
@@ -281,7 +304,7 @@ export function SettingsPanel({
         <section className="settings-section">
           <header><span>04</span><div><strong>ページ取得</strong><small>書き出すページ状態を安定させる</small></div></header>
           <div className="capture-options-row">
-            <label><span>ページ取得品質</span><select value={settings.captureScale} onChange={(event) => patch('captureScale', Number(event.target.value) as 1 | 2)}><option value={1}>1× 標準</option><option value={2}>2× 高精細</option></select></label>
+            <label><span>ページ取得品質</span><select value={settings.captureScale} disabled={mobileOutput} onChange={(event) => patch('captureScale', Number(event.target.value) as 1 | 2)}><option value={1}>1× 標準</option><option value={2}>2× 高精細</option></select></label>
             <label><span>待機時間</span><select value={settings.waitMs} onChange={(event) => patch('waitMs', Number(event.target.value))}><option value={0}>なし</option><option value={250}>250 ms</option><option value={500}>500 ms</option><option value={1000}>1 秒</option><option value={2000}>2 秒</option><option value={5000}>5 秒</option></select></label>
           </div>
           <Toggle label="スクロールバーを隠す" checked={settings.hideScrollbars} onChange={(value) => patch('hideScrollbars', value)} />

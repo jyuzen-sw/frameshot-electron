@@ -4,6 +4,14 @@ import {
   restoreSettings,
 } from '../../src/renderer/App';
 import { DEFAULT_SETTINGS } from '../../src/shared/presets';
+import type { CaptureSettings } from '../../src/shared/types';
+
+function legacySettings(
+  settings: CaptureSettings,
+): Omit<CaptureSettings, 'phoneFrameVariant'> {
+  const { phoneFrameVariant: _phoneFrameVariant, ...legacy } = settings;
+  return legacy;
+}
 
 function installSettingsStorage(
   values: Record<string, unknown>,
@@ -27,65 +35,128 @@ afterEach(() => {
 });
 
 describe('saved capture settings', () => {
-  it('prefers current v4 settings without changing user values', () => {
+  it('prefers current v5 settings without changing desktop user values', () => {
     const current = {
       ...DEFAULT_SETTINGS,
       margin: 8,
       cornerRadius: 13,
+      phoneFrameVariant: 'android' as const,
     };
     installSettingsStorage({
-      'frameshot:settings:v4': current,
-      'frameshot:settings:v3': current,
-      'frameshot:settings:v2': {
-        ...DEFAULT_SETTINGS,
-        margin: 32,
-        cornerRadius: 28,
-      },
+      'frameshot:settings:v5': current,
+      'frameshot:settings:v4': legacySettings(DEFAULT_SETTINGS),
     });
 
     expect(restoreSettings()).toEqual(current);
   });
 
+  it.each([
+    [360, 808, 'phone', 'android', 840, 1736],
+    [402, 874, 'phone', 'iphone', 924, 1868],
+    [390, 844, 'phone', 'iphone', 900, 1808],
+    [768, 1024, 'tablet', 'iphone', 1712, 2224],
+  ] as const)(
+    'migrates a v4 mobile %sx%s %s frame to %s and an automatic output',
+    (
+      viewportWidth,
+      viewportHeight,
+      frameStyle,
+      phoneFrameVariant,
+      outputWidth,
+      outputHeight,
+    ) => {
+      const v4 = legacySettings({
+        ...DEFAULT_SETTINGS,
+        deviceMode: 'mobile',
+        frameStyle,
+        viewportWidth,
+        viewportHeight,
+        outputWidth: 1080,
+        outputHeight: 1350,
+        captureScale: 1,
+        showUrl: false,
+      });
+      const entries = installSettingsStorage({
+        'frameshot:settings:v4': v4,
+      });
+
+      expect(restoreSettings()).toMatchObject({
+        phoneFrameVariant,
+        outputWidth,
+        outputHeight,
+        captureScale: 2,
+      });
+      expect(JSON.parse(entries.get('frameshot:settings:v4') ?? '')).toEqual(
+        v4,
+      );
+    },
+  );
+
+  it('adds the v5 frame field without changing v4 desktop settings', () => {
+    const v4 = legacySettings({
+      ...DEFAULT_SETTINGS,
+      outputWidth: 1600,
+      outputHeight: 1000,
+      viewportWidth: 1200,
+      viewportHeight: 800,
+      frameStyle: 'none',
+      margin: 19,
+      captureScale: 1,
+      showUrl: false,
+    });
+    installSettingsStorage({ 'frameshot:settings:v4': v4 });
+
+    expect(restoreSettings()).toEqual({
+      ...v4,
+      phoneFrameVariant: 'iphone',
+    });
+  });
+
   it('migrates the v3 default margin and leaves the stored value available', () => {
-    const v3 = {
+    const v3 = legacySettings({
       ...DEFAULT_SETTINGS,
       margin: 8,
       gradientAngle: 212,
-    };
+    });
     const entries = installSettingsStorage({
       'frameshot:settings:v3': v3,
     });
 
     expect(restoreSettings()).toEqual({
       ...v3,
+      phoneFrameVariant: 'iphone',
       margin: 32,
     });
     expect(JSON.parse(entries.get('frameshot:settings:v3') ?? '')).toEqual(v3);
   });
 
   it('preserves a custom v3 margin', () => {
-    const v3 = {
+    const v3 = legacySettings({
       ...DEFAULT_SETTINGS,
       margin: 19,
-    };
+    });
     installSettingsStorage({ 'frameshot:settings:v3': v3 });
 
-    expect(restoreSettings()).toEqual(v3);
+    expect(restoreSettings()).toEqual({
+      ...v3,
+      phoneFrameVariant: 'iphone',
+    });
   });
 
   it('migrates only the v2 corner-radius default and preserves its margin', () => {
-    const v2 = {
+    const v2 = legacySettings({
       ...DEFAULT_SETTINGS,
       margin: 8,
       cornerRadius: 28,
       waitMs: 1_000,
-    };
+    });
     const entries = installSettingsStorage({
       'frameshot:settings:v2': v2,
     });
 
     expect(restoreSettings()).toEqual({
       ...v2,
+      phoneFrameVariant: 'iphone',
       cornerRadius: 8,
     });
     expect(JSON.parse(entries.get('frameshot:settings:v2') ?? '')).toEqual(

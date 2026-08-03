@@ -5,8 +5,12 @@ import type {
   DeviceMode,
   GradientPreset,
   MobileDevicePreset,
+  PhoneFrameVariant,
 } from './types';
-import { BROWSER_BAR_HEIGHT } from './layout';
+import {
+  BROWSER_BAR_HEIGHT,
+  normalizeMobileOutput,
+} from './layout';
 import { MAX_CAPTURE_PIXELS } from './validation';
 
 export const DESKTOP_PRESET_MARGIN = 32;
@@ -121,6 +125,7 @@ export const DEFAULT_SETTINGS: CaptureSettings = {
   viewportHeight: FULL_HD_PRESET.viewportHeight,
   deviceMode: 'desktop',
   frameStyle: 'browser',
+  phoneFrameVariant: 'iphone',
   margin: FULL_HD_PRESET.margin,
   cornerRadius: 8,
   shadow: 62,
@@ -241,6 +246,40 @@ export function migrateV3Settings(
   };
 }
 
+export function inferPhoneFrameVariant(value: unknown): PhoneFrameVariant {
+  if (!value || typeof value !== 'object') return 'iphone';
+  const input = value as Partial<CaptureSettings>;
+  if (
+    input.phoneFrameVariant === 'android' ||
+    input.phoneFrameVariant === 'iphone'
+  ) {
+    return input.phoneFrameVariant;
+  }
+  if (input.deviceMode !== 'mobile') return 'iphone';
+
+  const matchingPreset = MOBILE_DEVICE_PRESETS.find(
+    (preset) =>
+      preset.frameStyle === 'phone' &&
+      preset.viewportWidth === input.viewportWidth &&
+      preset.viewportHeight === input.viewportHeight,
+  );
+  return matchingPreset?.group === 'android' ? 'android' : 'iphone';
+}
+
+export function addInferredPhoneFrameVariant(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  return {
+    ...value,
+    phoneFrameVariant: inferPhoneFrameVariant(value),
+  };
+}
+
+export function migrateV4Settings(
+  settings: CaptureSettings,
+): CaptureSettings {
+  return normalizeMobileOutput(settings);
+}
+
 export function devicePresetsFor(
   deviceMode: 'desktop',
 ): readonly DesktopResolutionPreset[];
@@ -263,6 +302,7 @@ export function findDevicePreset(
     CaptureSettings,
     | 'deviceMode'
     | 'frameStyle'
+    | 'phoneFrameVariant'
     | 'margin'
     | 'outputWidth'
     | 'outputHeight'
@@ -289,6 +329,8 @@ export function findDevicePreset(
       preset.frameStyle === settings.frameStyle &&
       preset.viewportWidth === settings.viewportWidth &&
       preset.viewportHeight === settings.viewportHeight &&
+      (preset.frameStyle !== 'phone' ||
+        preset.group === settings.phoneFrameVariant) &&
       !settings.showUrl,
   );
 }
@@ -321,14 +363,18 @@ export function applyDevicePreset(
     };
   }
 
-  return {
+  return normalizeMobileOutput({
     ...settings,
     deviceMode: preset.deviceMode,
     frameStyle: preset.frameStyle,
+    phoneFrameVariant:
+      preset.group === 'android' || preset.group === 'iphone'
+        ? preset.group
+        : settings.phoneFrameVariant,
     viewportWidth: preset.viewportWidth,
     viewportHeight: preset.viewportHeight,
     showUrl: false,
-  };
+  });
 }
 
 export function applyCustomDeviceMode(
@@ -336,10 +382,14 @@ export function applyCustomDeviceMode(
   deviceMode: DeviceMode,
 ): CaptureSettings {
   const frameStyle = deviceMode === 'desktop' ? 'browser' : 'phone';
-  return {
+  const enteringMobile =
+    deviceMode === 'mobile' && settings.deviceMode !== 'mobile';
+  return normalizeMobileOutput({
     ...settings,
     deviceMode,
     frameStyle,
+    viewportWidth: enteringMobile ? 390 : settings.viewportWidth,
+    viewportHeight: enteringMobile ? 844 : settings.viewportHeight,
     showUrl: frameStyle === 'browser',
-  };
+  });
 }

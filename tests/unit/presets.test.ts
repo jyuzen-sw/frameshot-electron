@@ -9,6 +9,7 @@ import {
   applyDevicePreset,
   devicePresetsFor,
   findDevicePreset,
+  inferPhoneFrameVariant,
   migrateV2Settings,
   migrateV3Settings,
 } from '@shared/presets';
@@ -22,6 +23,7 @@ describe('built-in presets', () => {
       viewportHeight: 958,
       deviceMode: 'desktop',
       frameStyle: 'browser',
+      phoneFrameVariant: 'iphone',
       margin: 32,
       cornerRadius: 8,
       gradientFrom: '#e3f2e8',
@@ -268,28 +270,32 @@ describe('built-in presets', () => {
     },
   );
 
-  it('applies a mobile page display size without changing the screenshot', () => {
-    const preset = MOBILE_DEVICE_PRESETS.find(
-      (candidate) => candidate.id === 'iphone-17-pro-max',
-    );
-    expect(preset).toBeDefined();
-    const previous = {
-      ...DEFAULT_SETTINGS,
-      outputWidth: 1080,
-      outputHeight: 1350,
-      margin: 48,
-      captureScale: 2 as const,
-    };
+  it.each([
+    ['android-pixel-10', 'android', 840, 1736],
+    ['android-galaxy-s24', 'android', 840, 1680],
+    ['iphone-17', 'iphone', 924, 1868],
+    ['iphone-17-pro-max', 'iphone', 1000, 2032],
+    ['tablet-ipad', 'iphone', 1712, 2224],
+    ['tablet-ipad-pro', 'iphone', 2224, 2908],
+  ] as const)(
+    'applies %s with its exact automatic output',
+    (presetId, phoneFrameVariant, outputWidth, outputHeight) => {
+      const preset = MOBILE_DEVICE_PRESETS.find(
+        (candidate) => candidate.id === presetId,
+      );
+      expect(preset).toBeDefined();
 
-    expect(applyDevicePreset(previous, preset!)).toEqual({
-      ...previous,
-      deviceMode: 'mobile',
-      frameStyle: 'phone',
-      viewportWidth: 440,
-      viewportHeight: 956,
-      showUrl: false,
-    });
-  });
+      expect(applyDevicePreset(DEFAULT_SETTINGS, preset!)).toMatchObject({
+        deviceMode: 'mobile',
+        frameStyle: preset!.frameStyle,
+        phoneFrameVariant,
+        outputWidth,
+        outputHeight,
+        captureScale: 2,
+        showUrl: false,
+      });
+    },
+  );
 
   it('uses a tablet frame for iPad page display sizes', () => {
     const preset = MOBILE_DEVICE_PRESETS.find(
@@ -297,9 +303,15 @@ describe('built-in presets', () => {
     );
     expect(preset).toBeDefined();
 
-    expect(applyDevicePreset(DEFAULT_SETTINGS, preset!)).toMatchObject({
+    expect(
+      applyDevicePreset(
+        { ...DEFAULT_SETTINGS, phoneFrameVariant: 'android' },
+        preset!,
+      ),
+    ).toMatchObject({
       deviceMode: 'mobile',
       frameStyle: 'tablet',
+      phoneFrameVariant: 'android',
       viewportWidth: 1024,
       viewportHeight: 1366,
       showUrl: false,
@@ -327,12 +339,15 @@ describe('built-in presets', () => {
     expect(findDevicePreset({ ...fullHd, showUrl: false })).toBeUndefined();
     expect(findDevicePreset(pixel)?.id).toBe('android-pixel-10');
     expect(
+      findDevicePreset({ ...pixel, phoneFrameVariant: 'iphone' }),
+    ).toBeUndefined();
+    expect(
       findDevicePreset({ ...pixel, frameStyle: 'tablet' }),
     ).toBeUndefined();
     expect(findDevicePreset({ ...pixel, showUrl: true })).toBeUndefined();
   });
 
-  it('restores the category frame when choosing a custom size', () => {
+  it('seeds a phone page when entering mobile custom size from desktop', () => {
     const phoneSettings = {
       ...DEFAULT_SETTINGS,
       deviceMode: 'mobile' as const,
@@ -341,12 +356,22 @@ describe('built-in presets', () => {
     };
     expect(
       applyCustomDeviceMode(
-        { ...DEFAULT_SETTINGS, frameStyle: 'none' },
+        {
+          ...DEFAULT_SETTINGS,
+          frameStyle: 'none',
+          phoneFrameVariant: 'android',
+        },
         'mobile',
       ),
     ).toMatchObject({
       deviceMode: 'mobile',
       frameStyle: 'phone',
+      phoneFrameVariant: 'android',
+      viewportWidth: 390,
+      viewportHeight: 844,
+      outputWidth: 900,
+      outputHeight: 1808,
+      captureScale: 2,
       showUrl: false,
     });
     expect(
@@ -357,4 +382,47 @@ describe('built-in presets', () => {
       showUrl: true,
     });
   });
+
+  it('keeps a custom mobile page and the last phone frame variant', () => {
+    const custom = applyCustomDeviceMode(
+      {
+        ...DEFAULT_SETTINGS,
+        deviceMode: 'mobile',
+        frameStyle: 'tablet',
+        phoneFrameVariant: 'android',
+        viewportWidth: 412,
+        viewportHeight: 915,
+      },
+      'mobile',
+    );
+
+    expect(custom).toMatchObject({
+      frameStyle: 'phone',
+      phoneFrameVariant: 'android',
+      viewportWidth: 412,
+      viewportHeight: 915,
+      outputWidth: 944,
+      outputHeight: 1950,
+    });
+  });
+
+  it.each([
+    [
+      { deviceMode: 'mobile', viewportWidth: 360, viewportHeight: 808 },
+      'android',
+    ],
+    [
+      { deviceMode: 'mobile', viewportWidth: 402, viewportHeight: 874 },
+      'iphone',
+    ],
+    [
+      { deviceMode: 'mobile', viewportWidth: 390, viewportHeight: 844 },
+      'iphone',
+    ],
+  ] as const)(
+    'infers a legacy phone frame variant from %o',
+    (legacy, expected) => {
+      expect(inferPhoneFrameVariant(legacy)).toBe(expected);
+    },
+  );
 });

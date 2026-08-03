@@ -8,19 +8,93 @@ interface RectangleEdges {
 }
 
 export const BROWSER_BAR_HEIGHT = 58;
-const PHONE_LEFT = 24;
-const PHONE_RIGHT = 24;
-const PHONE_TOP = 54;
-const PHONE_BOTTOM = 38;
-const PHONE_FRAME_RADIUS = 54;
-const PHONE_SCREEN_RADIUS = 38;
-const TABLET_BEZEL = 28;
+export const MOBILE_OUTPUT_SCALE = 2;
+export const PHONE_BEZEL = 14;
+export const TABLET_BEZEL = 28;
+const ANDROID_FRAME_RADIUS = 40;
+const ANDROID_SCREEN_RADIUS = 32;
+const IPHONE_FRAME_RADIUS = 55;
+const IPHONE_SCREEN_RADIUS = 47;
 const TABLET_FRAME_RADIUS = 42;
 const TABLET_SCREEN_RADIUS = 22;
 const BROWSER_ADDRESS_HEIGHT_RATIO = 0.56;
 
+interface FrameMetrics {
+  insets: {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  };
+  frameRadius: number | null;
+  screenRadius: number | null;
+}
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+function frameMetrics(
+  settings: Pick<CaptureSettings, 'frameStyle' | 'phoneFrameVariant'>,
+): FrameMetrics {
+  if (settings.frameStyle === 'browser') {
+    return {
+      insets: { left: 0, top: BROWSER_BAR_HEIGHT, right: 0, bottom: 0 },
+      frameRadius: null,
+      screenRadius: null,
+    };
+  }
+  if (settings.frameStyle === 'phone') {
+    const iphone = settings.phoneFrameVariant === 'iphone';
+    return {
+      insets: {
+        left: PHONE_BEZEL,
+        top: PHONE_BEZEL,
+        right: PHONE_BEZEL,
+        bottom: PHONE_BEZEL,
+      },
+      frameRadius: iphone ? IPHONE_FRAME_RADIUS : ANDROID_FRAME_RADIUS,
+      screenRadius: iphone ? IPHONE_SCREEN_RADIUS : ANDROID_SCREEN_RADIUS,
+    };
+  }
+  if (settings.frameStyle === 'tablet') {
+    return {
+      insets: {
+        left: TABLET_BEZEL,
+        top: TABLET_BEZEL,
+        right: TABLET_BEZEL,
+        bottom: TABLET_BEZEL,
+      },
+      frameRadius: TABLET_FRAME_RADIUS,
+      screenRadius: TABLET_SCREEN_RADIUS,
+    };
+  }
+  return {
+    insets: { left: 0, top: 0, right: 0, bottom: 0 },
+    frameRadius: null,
+    screenRadius: null,
+  };
+}
+
+export function normalizeMobileOutput(
+  settings: CaptureSettings,
+): CaptureSettings {
+  if (settings.deviceMode !== 'mobile') return settings;
+
+  const { insets } = frameMetrics(settings);
+  const viewportWidth = Math.round(settings.viewportWidth);
+  const viewportHeight = Math.round(settings.viewportHeight);
+  const margin = Math.round(settings.margin);
+  return {
+    ...settings,
+    outputWidth:
+      (viewportWidth + insets.left + insets.right) * MOBILE_OUTPUT_SCALE +
+      margin * 2,
+    outputHeight:
+      (viewportHeight + insets.top + insets.bottom) * MOBILE_OUTPUT_SCALE +
+      margin * 2,
+    captureScale: MOBILE_OUTPUT_SCALE,
+  };
 }
 
 export function roundRectangleEdges(rectangle: RectangleEdges): {
@@ -50,26 +124,10 @@ export function calculateCompositionLayout(
   const viewportHeight = clamp(Math.round(settings.viewportHeight), 240, 3840);
   const maximumMargin = Math.floor(Math.min(outputWidth, outputHeight) * 0.42);
   const margin = clamp(Math.round(settings.margin), 0, maximumMargin);
-
-  let intrinsicWidth = viewportWidth;
-  let intrinsicHeight = viewportHeight;
-  let screenOffsetX = 0;
-  let screenOffsetY = 0;
-
-  if (settings.frameStyle === 'browser') {
-    intrinsicHeight += BROWSER_BAR_HEIGHT;
-    screenOffsetY = BROWSER_BAR_HEIGHT;
-  } else if (settings.frameStyle === 'phone') {
-    intrinsicWidth += PHONE_LEFT + PHONE_RIGHT;
-    intrinsicHeight += PHONE_TOP + PHONE_BOTTOM;
-    screenOffsetX = PHONE_LEFT;
-    screenOffsetY = PHONE_TOP;
-  } else if (settings.frameStyle === 'tablet') {
-    intrinsicWidth += TABLET_BEZEL * 2;
-    intrinsicHeight += TABLET_BEZEL * 2;
-    screenOffsetX = TABLET_BEZEL;
-    screenOffsetY = TABLET_BEZEL;
-  }
+  const metrics = frameMetrics(settings);
+  const { insets } = metrics;
+  const intrinsicWidth = viewportWidth + insets.left + insets.right;
+  const intrinsicHeight = viewportHeight + insets.top + insets.bottom;
 
   const availableWidth = Math.max(1, outputWidth - margin * 2);
   const availableHeight = Math.max(1, outputHeight - margin * 2);
@@ -93,19 +151,15 @@ export function calculateCompositionLayout(
 
   const desktopScreenRadius = Math.max(0, settings.cornerRadius - 2);
   const frameRadius =
-    settings.frameStyle === 'phone'
-      ? PHONE_FRAME_RADIUS * scale
-      : settings.frameStyle === 'tablet'
-        ? TABLET_FRAME_RADIUS * scale
-        : settings.frameStyle === 'none'
-          ? desktopScreenRadius
-          : settings.cornerRadius;
+    metrics.frameRadius !== null
+      ? metrics.frameRadius * scale
+      : settings.frameStyle === 'none'
+        ? desktopScreenRadius
+        : settings.cornerRadius;
   const screenRadius =
-    settings.frameStyle === 'phone'
-      ? PHONE_SCREEN_RADIUS * scale
-      : settings.frameStyle === 'tablet'
-        ? TABLET_SCREEN_RADIUS * scale
-        : desktopScreenRadius;
+    metrics.screenRadius !== null
+      ? metrics.screenRadius * scale
+      : desktopScreenRadius;
 
   return {
     scale,
@@ -118,8 +172,8 @@ export function calculateCompositionLayout(
       radius: frameRadius,
     },
     screen: {
-      x: frameX + screenOffsetX * scale,
-      y: frameY + screenOffsetY * scale,
+      x: frameX + insets.left * scale,
+      y: frameY + insets.top * scale,
       width: screenWidth,
       height: screenHeight,
       radius: screenRadius,
@@ -131,10 +185,10 @@ export function calculateCompositionLayout(
         ? BROWSER_BAR_HEIGHT * scale * BROWSER_ADDRESS_HEIGHT_RATIO
         : 0,
     phoneBezel: {
-      left: settings.frameStyle === 'phone' ? PHONE_LEFT * scale : 0,
-      top: settings.frameStyle === 'phone' ? PHONE_TOP * scale : 0,
-      right: settings.frameStyle === 'phone' ? PHONE_RIGHT * scale : 0,
-      bottom: settings.frameStyle === 'phone' ? PHONE_BOTTOM * scale : 0,
+      left: settings.frameStyle === 'phone' ? insets.left * scale : 0,
+      top: settings.frameStyle === 'phone' ? insets.top * scale : 0,
+      right: settings.frameStyle === 'phone' ? insets.right * scale : 0,
+      bottom: settings.frameStyle === 'phone' ? insets.bottom * scale : 0,
     },
     tabletBezel: {
       left: settings.frameStyle === 'tablet' ? TABLET_BEZEL * scale : 0,

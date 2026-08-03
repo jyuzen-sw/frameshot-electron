@@ -4,8 +4,10 @@ import type {
   CaptureSettings,
   DeviceMode,
   FrameStyle,
+  PhoneFrameVariant,
   TargetViewLayout,
 } from './types';
+import { normalizeMobileOutput } from './layout';
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -50,6 +52,13 @@ function frameStyle(value: unknown): FrameStyle {
   return value;
 }
 
+function phoneFrameVariant(value: unknown): PhoneFrameVariant {
+  if (value !== 'android' && value !== 'iphone') {
+    throw new Error('スマホフレーム種別が不正です。');
+  }
+  return value;
+}
+
 function backgroundStyle(value: unknown): BackgroundStyle {
   if (value !== 'soft' && value !== 'clean' && value !== 'fluid') {
     throw new Error('背景スタイルが不正です。');
@@ -77,7 +86,7 @@ export function validateCaptureSettings(value: unknown): CaptureSettings {
   }
   const input = value as Partial<CaptureSettings>;
 
-  const settings: CaptureSettings = {
+  let settings: CaptureSettings = {
     outputWidth: boundedInteger(
       input.outputWidth,
       'スクリーンショットサイズ 幅',
@@ -104,6 +113,7 @@ export function validateCaptureSettings(value: unknown): CaptureSettings {
     ),
     deviceMode: deviceMode(input.deviceMode),
     frameStyle: frameStyle(input.frameStyle),
+    phoneFrameVariant: phoneFrameVariant(input.phoneFrameVariant),
     margin: boundedInteger(input.margin, '余白', 0, 2000),
     cornerRadius: boundedInteger(input.cornerRadius, '角丸', 0, 160),
     shadow: boundedInteger(input.shadow, '影', 0, 100),
@@ -117,11 +127,28 @@ export function validateCaptureSettings(value: unknown): CaptureSettings {
     pauseAnimations: Boolean(input.pauseAnimations),
     showUrl: Boolean(input.showUrl),
   };
+  settings = normalizeMobileOutput(settings);
+  const outputSizeName =
+    settings.deviceMode === 'mobile'
+      ? '自動出力サイズ'
+      : 'スクリーンショットサイズ';
+  settings.outputWidth = boundedInteger(
+    settings.outputWidth,
+    `${outputSizeName} 幅`,
+    320,
+    7680,
+  );
+  settings.outputHeight = boundedInteger(
+    settings.outputHeight,
+    `${outputSizeName} 高さ`,
+    320,
+    7680,
+  );
 
   const outputPixels = settings.outputWidth * settings.outputHeight;
   if (outputPixels > MAX_CAPTURE_PIXELS) {
     throw new Error(
-      `スクリーンショットサイズは合計${MAX_CAPTURE_PIXELS.toLocaleString('ja-JP')}画素以下にしてください。`,
+      `${outputSizeName}は合計${MAX_CAPTURE_PIXELS.toLocaleString('ja-JP')}画素以下にしてください。`,
     );
   }
 
