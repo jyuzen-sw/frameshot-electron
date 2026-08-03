@@ -125,7 +125,7 @@ GPU sandbox、renderer sandbox、context isolation、`webSecurity`は維持し�
 
 ## パッケージとCI
 
-Electron ForgeはアプリをASARへ格納し、WindowsではSquirrelのSetup.exe、NuGet package、`RELEASES`を生成します。Squirrelのinstall/update/uninstall起動はMain Window生成前に処理し、App User Model IDを固定します。
+Electron ForgeはアプリをASARへ格納し、WindowsではSquirrelのSetup.exe、NuGet package、`RELEASES`を生成します。このローカル生成経路と、Main Window生成前に行うSquirrelのinstall/update/uninstall起動処理は維持します。公開用には、Forgeでpackage化してFuseを適用したWindows x64アプリをelectron-builderのprepackaged入力へ渡し、インストーラー不要の単一portable exeを別経路で生成します。
 
 Electron Fuseは次を強制します。
 
@@ -137,9 +137,13 @@ Electron Fuseは次を強制します。
 
 `LoadBrowserProcessSpecificV8Snapshot`だけは無効です。このFuseを有効にするとmain process用の `browser_v8_context_snapshot.bin` が必須ですが、検証したElectron 43配布物には同梱されておらず、ビルドは起動時にfatal errorになりました。Windows成果物へ専用snapshotを生成・同梱する工程を用意するまでは、全rendererでNode integrationを無効にし、context isolationとsandboxを維持します。
 
-配布ターゲットはWindows x64だけです。pull requestと `main` pushではLinux上でNode.js 26、`npm ci`、全severityのaudit、型検査、単体テストを行います。`main` pushではWindowsとLinux/Xvfbのパッケージ済みアプリを使い、WebGL2、インメモリ合成、非永続sessionの同じE2Eを検証します。tag buildはSquirrel `make`、Fuse検査、成果物検査を含むWindows x64成果物に加え、検証・開発用のLinux x64パッケージをworkflow artifactとして生成します。
+公開配布ターゲットはWindows x64だけです。pull requestと `main` pushではLinux上でNode.js 26、`npm ci`、全severityのaudit、型検査、単体テストを行います。`main` pushではWindowsとLinux/Xvfbのパッケージ済みアプリを使い、WebGL2、インメモリ合成、非永続sessionの同じE2Eを検証します。
 
-Windows Authenticode署名は未設定です。正式リリース前に署名資格情報を安全に扱うCIを追加する必要があります。Linux x64のworkflow artifactを含め、macOS/Linux向け成果物は現在サポート対象外です。
+release workflowは `validate`、`build-windows`、`publish` の順に実行します。`validate`は、tagが `^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$` に一致する署名付きannotated tagであり、tag objectと直接参照先commitのGitHub署名検証結果がともにVerifiedかつvalidであることを確認します。さらに、タグのversionと `package.json` のversionが一致し、対象commitが `main` のHEADであることを検証します。lightweight tag、tag chain、leading zero、prerelease、検証情報の欠損はfail closedで拒否します。
+
+`build-windows`は検証済みcommit SHAをread-only tokenでcheckoutし、audit、型検査、単体テスト、package、Fuse検査、内側のpackage済みアプリのE2E、portable生成、portable wrapperの起動smoke testを行います。`publish`だけが `contents: write` を持ち、既存のReleaseとdraftを拒否してからportable exeをdraftへ添付します。タグ、署名、commit、`main` HEADがvalidate時から変わっていないことを公開直前に再検証し、成功したdraftだけを通常公開へ切り替えます。再検証に失敗したdraftは自動削除せず、明示的な確認対象として残します。公開assetは `FrameShot-N.N.N-Windows-x64-Portable.exe` の1件だけで、Squirrel成果物とLinux packageは含めません。
+
+tagとcommitのGit署名はソースの来歴をGitHub上で検証しますが、portable exe自体を署名するWindows Authenticodeとは別です。Authenticodeは未設定のため、公開exeは未署名でSmartScreenの警告が表示される可能性があります。portableはインストーラー不要という意味で、設定はWindowsのAppDataに保存されます。exeと同じディレクトリだけで完結するUSB portable動作は提供しません。macOS/Linux向け成果物も現在サポート対象外です。
 
 ## 拡張候補
 

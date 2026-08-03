@@ -44,8 +44,12 @@ WebGL / WebGL2サイトの表示を優先するため、ChromiumのGPUブロッ�
 
 ## 配布物
 
-配布対象はWindows x64です。パッケージはASARを使用し、Electron FuseでRunAsNode、`NODE_OPTIONS`、CLI inspect、ASAR外からのアプリ読込、`file://`の追加特権を無効化します。ASAR integrityとCookie暗号化を有効化し、WindowsのSquirrel起動イベントもアプリUIを開く前に処理します。CIはpull requestと `main` pushでLinux上のaudit、型検査、単体テストを行い、`main` pushでWindowsとLinux/Xvfbのパッケージ済みアプリをE2E検証します。タグでは既存のWindows Squirrel成果物と、検証・開発用のLinux x64 package artifactを生成します。
+公開配布対象はWindows x64です。GitHub Releaseには単一ファイルの `FrameShot-N.N.N-Windows-x64-Portable.exe` だけを添付し、Squirrel成果物とLinux packageは公開しません。Electron ForgeによるWindows Squirrel成果物のローカル生成経路と、そのinstall/update/uninstall起動処理は維持します。パッケージはASARを使用し、Electron FuseでRunAsNode、`NODE_OPTIONS`、CLI inspect、ASAR外からのアプリ読込、`file://`の追加特権を無効化します。ASAR integrityとCookie暗号化も有効化します。
+
+release workflowは、厳密な `vN.N.N` 形式の署名付きannotated tagだけを処理します。tag objectと、そのタグが直接指すcommitの両方についてGitHubの署名検証結果がVerifiedかつvalidであること、タグのversionと `package.json` のversionが一致すること、対象commitが検証時と公開直前の両方で `main` のHEADであることを確認します。lightweight tagやtag chainは拒否し、検証に必要なGitHub APIの情報が欠けた場合も公開しません。ビルド処理はread-only権限で行い、GitHub Releaseへの書き込み権限は、再検証後にportable exeを公開するjobだけへ限定します。
 
 `LoadBrowserProcessSpecificV8Snapshot` Fuseは無効です。検証したElectron 43配布物に専用の `browser_v8_context_snapshot.bin` がなく、有効化したビルドは起動時にfatal errorになったためです。Windows成果物へ専用snapshotを生成・同梱できるようになるまでは、操作UI・対象サイト・合成画面を含む全rendererでNode integrationを無効にし、context isolationとsandboxを維持します。
 
-Windows Authenticode署名はまだ設定されていません。現在生成される実行ファイルとインストーラーは開発・検証用途に限定し、正式リリース前に署名と、秘密情報を安全に扱うリリース手順を追加する必要があります。Linux x64のworkflow artifactを含め、macOS/Linux向け成果物は現在サポート対象外です。
+タグとcommitのGit署名は、公開するソースの来歴をGitHub上で検証するためのものであり、Windows実行ファイルの発行元を証明するAuthenticode署名ではありません。Windows Authenticodeは未設定のため、公開するportable exeは未署名で、SmartScreenの警告が表示される可能性があります。
+
+portableはインストーラーを使わずに起動できることを意味します。設定はWindowsのAppDataへ保存され、exeと同じディレクトリだけでは完結しないため、USBメモリ内だけにデータを残す運用には対応していません。macOS/Linux向け成果物は現在サポート対象外です。

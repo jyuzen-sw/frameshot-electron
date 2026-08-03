@@ -176,22 +176,46 @@ npm run audit         # 全severityを対象にnpm audit
 npm run typecheck     # TypeScriptチェック
 npm test              # Vitest
 npm run package       # 現在のOS向けにパッケージ化
-npm run make:windows  # Windows x64用インストーラー／配布物を生成
+npm run make:windows  # Windows x64用Squirrel成果物をローカル生成
+npm run make:windows:portable # Windows x64用portable exeを生成
 npm run generate:windows-icon # SVGからWindowsアイコンを再生成
 npm run test:e2e      # パッケージ化後、Windowを表示せずPlaywrightでE2E
 npm run verify        # typecheck + unit test
 npm run verify:fuses  # パッケージ済みElectron Fuseを検証
+npm run verify:windows-portable # portable exeの名前とPE構造を検証
 ```
 
 成果物は `out/` 以下に生成されます。
 
 E2Eは既定でElectronのheadless backendを使用し、保存ダイアログやOSクリップボードへ依存せず、テスト専用user data内のPNGを検証します。LinuxではOzone headlessを使い、`DISPLAY`と`WAYLAND_DISPLAY`を渡さず実行します。WSL以外でGUI displayとOSクリップボードを利用できる環境では、`FRAMESHOT_E2E_HEADED=1`を設定して従来のheaded検証も実行できます。
 
-現在の配布ターゲットはWindows x64だけです。Squirrel用の `FrameShot-Setup.exe`、NuGetパッケージ、`RELEASES` を生成します。Electron FuseでRunAsNode、`NODE_OPTIONS`、CLI inspect、ASAR外からのアプリ読込を無効化し、ASAR integrityとCookie暗号化を有効化しています。CIはpull requestと `main` pushでLinux上のaudit、型検査、単体テストを実行し、`main` pushではWindowsとLinuxのパッケージ済みアプリをheadless E2Eで検証します。`v*.*.*` タグでは既存のWindows Squirrel成果物に加え、検証・開発用のLinux x64パッケージをworkflow artifactとして保存します。
+現在の公開配布ターゲットはWindows x64だけです。GitHub Releaseには、インストーラー不要の単一ファイル `FrameShot-N.N.N-Windows-x64-Portable.exe` だけを添付します。Electron ForgeによるSquirrel用の `FrameShot-Setup.exe`、NuGetパッケージ、`RELEASES` のローカル生成経路は維持しますが、Squirrel成果物とLinux packageはGitHub Releaseの対象外です。Electron FuseでRunAsNode、`NODE_OPTIONS`、CLI inspect、ASAR外からのアプリ読込を無効化し、ASAR integrityとCookie暗号化を有効化しています。CIはpull requestと `main` pushでLinux上のaudit、型検査、単体テストを実行し、`main` pushではWindowsとLinuxのパッケージ済みアプリをheadless E2Eで検証します。
 
 `LoadBrowserProcessSpecificV8Snapshot` Fuseは無効です。有効化には `browser_v8_context_snapshot.bin` の同梱が必要ですが、検証したElectron 43配布物では有効化すると起動時にfatal errorになりました。Windows成果物へ専用snapshotを生成・同梱する工程を追加するまでは、全rendererのNode integrationを無効にする現在の分離を維持します。
 
-Windows Authenticode署名と配布用資格情報はまだ設定していません。現在の成果物は開発・検証用途です。一般公開前に署名と、資格情報を安全に扱うリリース手順を追加してください。Linux x64のworkflow artifactを含め、macOS/Linux向け成果物は現在サポート対象外です。
+リリース時に要求するGit署名は、タグとソースcommitの来歴をGitHub上で検証するためのものです。portable exe自体に対するWindows Authenticode署名はまだ設定していないため、ダウンロードや起動時にSmartScreenの警告が表示される可能性があります。また、ここでいうportableはインストーラーが不要という意味です。設定はWindowsのAppDataに保存され、exeと同じディレクトリだけでは完結しないため、USBメモリ内だけに設定を残す用途には対応していません。macOS/Linux向け成果物も現在サポート対象外です。
+
+## リリース手順
+
+GitHub Actionsは、厳密な `vN.N.N` 形式（正規表現では `^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`）の署名付きannotated tagを受け付けます。tag objectと、そのタグが直接指すcommitの両方がGitHubでVerifiedかつvalidであり、`package.json`のversionがタグから`v`を除いた値と一致する必要があります。対象commitは検証時と公開直前の両方で `main` のHEADと完全に一致しなければなりません。lightweight tag、別のtagを指すtag、prerelease表記、leading zeroを含むversionは公開しません。
+
+1. versionを更新し、lockfileを同期します。
+
+   ```bash
+   npm version N.N.N --no-git-tag-version
+   ```
+
+2. version更新を含む署名付きcommitをPull Requestから `main` へmergeし、最終的にタグが指す `main` のHEAD自体がGitHubでVerifiedであることを確認します。
+3. 最新の `main` を取得し、そのHEADへ署名付きannotated tagを作成してpushします。
+
+   ```bash
+   git switch main
+   git pull --ff-only
+   git tag -s vN.N.N -m "FrameShot vN.N.N"
+   git push origin vN.N.N
+   ```
+
+4. Actionsのrelease workflowが成功したことと、通常公開の `FrameShot vN.N.N` Releaseに `FrameShot-N.N.N-Windows-x64-Portable.exe` が1件だけ添付されていることを確認します。
 
 ## プロジェクト構成
 
