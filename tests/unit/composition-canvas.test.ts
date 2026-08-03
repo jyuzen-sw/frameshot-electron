@@ -2,7 +2,11 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { calculateCompositionLayout } from '@shared/layout';
-import { DEFAULT_SETTINGS } from '@shared/presets';
+import {
+  DEFAULT_SETTINGS,
+  MOBILE_DEVICE_PRESETS,
+  applyDevicePreset,
+} from '@shared/presets';
 import { CompositionCanvas } from '../../src/renderer/components/CompositionCanvas';
 
 function canvasOpeningTag(markup: string): string {
@@ -262,6 +266,98 @@ describe('CompositionCanvas', () => {
       expect(markup).toContain('id="page-image"');
     },
   );
+
+  it.each([
+    [
+      'android-pixel-10',
+      'android',
+      'composition-phone-camera',
+      ['is-android-volume', 'is-android-power'],
+    ],
+    [
+      'iphone-17',
+      'iphone',
+      'composition-phone-island',
+      [
+        'is-iphone-action',
+        'is-iphone-volume-up',
+        'is-iphone-volume-down',
+        'is-iphone-power',
+      ],
+    ],
+  ] as const)(
+    'renders the %s shell in live mode and its sensor only in image mode',
+    (presetId, variant, sensorClass, controlClasses) => {
+      const preset = MOBILE_DEVICE_PRESETS.find(
+        (candidate) => candidate.id === presetId,
+      );
+      expect(preset).toBeDefined();
+      const settings = applyDevicePreset(DEFAULT_SETTINGS, preset!);
+      const live = renderToStaticMarkup(
+        createElement(CompositionCanvas, {
+          settings,
+          pageUrl: 'https://example.com',
+          slotMode: 'live',
+        }),
+      );
+      const image = renderToStaticMarkup(
+        createElement(CompositionCanvas, {
+          settings,
+          pageUrl: 'https://example.com',
+          slotMode: 'image',
+          pageImageUrl:
+            'frameshot-export://capture/00000000-0000-4000-8000-000000000000/page.png',
+        }),
+      );
+
+      for (const markup of [live, image]) {
+        expect(markup).toContain(`composition-phone-${variant}`);
+        expect(markup).toContain(`data-phone-frame-variant="${variant}"`);
+        for (const controlClass of controlClasses) {
+          expect(markup).toContain(controlClass);
+        }
+        expect(markup).not.toContain('composition-phone-home');
+      }
+      expect(live).not.toContain(sensorClass);
+      expect(image).toContain(sensorClass);
+    },
+  );
+
+  it('uses the approved sensor dimensions in a 2x mobile export', () => {
+    const pixel = applyDevicePreset(
+      DEFAULT_SETTINGS,
+      MOBILE_DEVICE_PRESETS.find(
+        (preset) => preset.id === 'android-pixel-10',
+      )!,
+    );
+    const iphone = applyDevicePreset(
+      DEFAULT_SETTINGS,
+      MOBILE_DEVICE_PRESETS.find((preset) => preset.id === 'iphone-17')!,
+    );
+    const androidMarkup = renderToStaticMarkup(
+      createElement(CompositionCanvas, {
+        settings: pixel,
+        pageUrl: 'https://example.com',
+        slotMode: 'image',
+        pageImageUrl: 'frameshot-export://capture/page.png',
+      }),
+    );
+    const iphoneMarkup = renderToStaticMarkup(
+      createElement(CompositionCanvas, {
+        settings: iphone,
+        pageUrl: 'https://example.com',
+        slotMode: 'image',
+        pageImageUrl: 'frameshot-export://capture/page.png',
+      }),
+    );
+
+    expect(androidMarkup).toContain(
+      'class="composition-phone-camera" style="width:20.000px;height:20.000px;top:48.000px"',
+    );
+    expect(iphoneMarkup).toContain(
+      'class="composition-phone-island" style="width:248.000px;height:64.000px;top:52.000px"',
+    );
+  });
 
   it('renders an iPad-style camera without phone-only chrome', () => {
     const markup = renderToStaticMarkup(

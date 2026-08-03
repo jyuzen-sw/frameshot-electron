@@ -60,6 +60,18 @@ export function CompositionCanvas({
     borderRadius: px(layout.screen.radius),
   };
   const tabletCameraSize = 8 * layout.scale;
+  const phoneButtonThickness = 3 * layout.scale;
+
+  const phoneButtonStyle = (
+    side: 'left' | 'right',
+    top: number,
+    height: number,
+  ): CSSProperties => ({
+    [side]: px(2 * layout.scale),
+    top: px(top * layout.scale),
+    width: px(phoneButtonThickness),
+    height: px(height * layout.scale),
+  });
 
   const pageSlot = (
     <div
@@ -114,26 +126,72 @@ export function CompositionCanvas({
     </BrowserFrame>
   ) : settings.frameStyle === 'phone' ? (
     <section
-      className="composition-phone-frame composition-frame-shadow"
+      className={`composition-phone-frame composition-phone-${settings.phoneFrameVariant} composition-frame-shadow`}
       style={frameStyle}
+      data-phone-frame-variant={settings.phoneFrameVariant}
     >
-      <span className="composition-phone-highlight" />
-      <span
-        className="composition-phone-island"
-        style={{
-          width: px(Math.min(layout.screen.width * 0.34, 126 * layout.scale)),
-          height: px(Math.max(12, 28 * layout.scale)),
-          top: px(Math.max(10, layout.phoneBezel.top * 0.34)),
-        }}
-      />
+      <span className="composition-phone-rail" aria-hidden="true" />
+      <span className="composition-phone-highlight" aria-hidden="true" />
+      {settings.phoneFrameVariant === 'android' ? (
+        <>
+          <span
+            className="composition-phone-button is-android-volume"
+            style={phoneButtonStyle('right', 120, 70)}
+            aria-hidden="true"
+          />
+          <span
+            className="composition-phone-button is-android-power"
+            style={phoneButtonStyle('right', 210, 54)}
+            aria-hidden="true"
+          />
+        </>
+      ) : (
+        <>
+          <span
+            className="composition-phone-button is-iphone-action"
+            style={phoneButtonStyle('left', 110, 30)}
+            aria-hidden="true"
+          />
+          <span
+            className="composition-phone-button is-iphone-volume-up"
+            style={phoneButtonStyle('left', 154, 55)}
+            aria-hidden="true"
+          />
+          <span
+            className="composition-phone-button is-iphone-volume-down"
+            style={phoneButtonStyle('left', 222, 55)}
+            aria-hidden="true"
+          />
+          <span
+            className="composition-phone-button is-iphone-power"
+            style={phoneButtonStyle('right', 190, 92)}
+            aria-hidden="true"
+          />
+        </>
+      )}
       {pageSlot}
-      <span
-        className="composition-phone-home"
-        style={{
-          bottom: px(Math.max(9, layout.phoneBezel.bottom * 0.38)),
-          width: px(Math.min(layout.screen.width * 0.32, 116 * layout.scale)),
-        }}
-      />
+      {slotMode === 'image' &&
+        (settings.phoneFrameVariant === 'iphone' ? (
+          <span
+            className="composition-phone-island"
+            style={{
+              width: px(124 * layout.scale),
+              height: px(32 * layout.scale),
+              top: px(layout.phoneBezel.top + 12 * layout.scale),
+            }}
+            aria-hidden="true"
+          />
+        ) : (
+          <span
+            className="composition-phone-camera"
+            style={{
+              width: px(10 * layout.scale),
+              height: px(10 * layout.scale),
+              top: px(layout.phoneBezel.top + 10 * layout.scale),
+            }}
+            aria-hidden="true"
+          />
+        ))}
     </section>
   ) : settings.frameStyle === 'tablet' ? (
     <section
