@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   BROWSER_BAR_HEIGHT,
+  MOBILE_OUTPUT_SCALE,
+  PHONE_BEZEL,
   calculateCompositionLayout,
   calculatePreviewCanvasSize,
+  normalizeMobileOutput,
   roundRectangleEdges,
 } from '@shared/layout';
 import { DEFAULT_SETTINGS } from '@shared/presets';
@@ -205,25 +208,71 @@ describe('calculateCompositionLayout', () => {
     expect(layout.screen.height).toBeLessThan(layout.frame.height);
   });
 
-  it('adds bezels for a phone frame', () => {
-    const layout = calculateCompositionLayout({
-      ...DEFAULT_SETTINGS,
-      outputWidth: 1080,
-      outputHeight: 1350,
-      viewportWidth: 390,
-      viewportHeight: 844,
-      frameStyle: 'phone',
-      deviceMode: 'mobile',
-    });
-    expect(layout.phoneBezel.left).toBeGreaterThan(0);
-    expect(layout.phoneBezel.top).toBeGreaterThan(0);
-    expect(layout.screen.x).toBeGreaterThan(layout.frame.x);
-    expect(layout.screen.y).toBeGreaterThan(layout.frame.y);
-    expect(layout.browserBarHeight).toBe(0);
-    expect(layout.browserAddressHeight).toBe(0);
-    expect(layout.frame.radius / layout.scale).toBeCloseTo(54, 5);
-    expect(layout.screen.radius / layout.scale).toBeCloseTo(38, 5);
-  });
+  it.each([
+    ['android', 40, 32],
+    ['iphone', 55, 47],
+  ] as const)(
+    'uses the %s phone radii with one uniform bezel',
+    (phoneFrameVariant, frameRadius, screenRadius) => {
+      const layout = calculateCompositionLayout({
+        ...DEFAULT_SETTINGS,
+        outputWidth: 1080,
+        outputHeight: 1350,
+        viewportWidth: 390,
+        viewportHeight: 844,
+        frameStyle: 'phone',
+        deviceMode: 'mobile',
+        phoneFrameVariant,
+      });
+      expect(layout.phoneBezel.left / layout.scale).toBeCloseTo(
+        PHONE_BEZEL,
+        5,
+      );
+      expect(layout.phoneBezel.top / layout.scale).toBeCloseTo(
+        PHONE_BEZEL,
+        5,
+      );
+      expect(layout.phoneBezel.right / layout.scale).toBeCloseTo(
+        PHONE_BEZEL,
+        5,
+      );
+      expect(layout.phoneBezel.bottom / layout.scale).toBeCloseTo(
+        PHONE_BEZEL,
+        5,
+      );
+      expect(layout.screen.x).toBeGreaterThan(layout.frame.x);
+      expect(layout.screen.y).toBeGreaterThan(layout.frame.y);
+      expect(layout.browserBarHeight).toBe(0);
+      expect(layout.browserAddressHeight).toBe(0);
+      expect(layout.frame.radius / layout.scale).toBeCloseTo(frameRadius, 5);
+      expect(layout.screen.radius / layout.scale).toBeCloseTo(screenRadius, 5);
+    },
+  );
+
+  it.each(['browser', 'phone', 'tablet', 'none'] as const)(
+    'derives a 2x mobile output around the active %s frame and margin',
+    (frameStyle) => {
+      const normalized = normalizeMobileOutput({
+        ...DEFAULT_SETTINGS,
+        deviceMode: 'mobile',
+        frameStyle,
+        viewportWidth: 390,
+        viewportHeight: 844,
+        margin: 32,
+        captureScale: 1,
+      });
+      const layout = calculateCompositionLayout(normalized);
+
+      expect(normalized.captureScale).toBe(MOBILE_OUTPUT_SCALE);
+      expect(layout.scale).toBe(MOBILE_OUTPUT_SCALE);
+      expect(layout.artboard).toEqual({
+        x: 0,
+        y: 0,
+        width: normalized.outputWidth,
+        height: normalized.outputHeight,
+      });
+    },
+  );
 
   it('rounds opposing viewport edges without shifting the far edges', () => {
     const bounds = roundRectangleEdges({

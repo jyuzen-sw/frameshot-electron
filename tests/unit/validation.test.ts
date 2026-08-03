@@ -9,6 +9,7 @@ import {
   validateCaptureSettings,
   validateTargetViewLayout,
 } from '@shared/validation';
+import { normalizeMobileOutput } from '@shared/layout';
 
 describe('capture settings validation', () => {
   it('accepts every built-in screenshot and device preset', () => {
@@ -16,6 +17,26 @@ describe('capture settings validation', () => {
       const settings = applyDevicePreset(DEFAULT_SETTINGS, preset);
       expect(validateCaptureSettings(settings)).toEqual(settings);
     }
+  });
+
+  it('normalizes mobile output at the validation boundary', () => {
+    expect(
+      validateCaptureSettings({
+        ...DEFAULT_SETTINGS,
+        deviceMode: 'mobile',
+        frameStyle: 'phone',
+        phoneFrameVariant: 'android',
+        viewportWidth: 360,
+        viewportHeight: 808,
+        outputWidth: 1080,
+        outputHeight: 1350,
+        captureScale: 1,
+      }),
+    ).toMatchObject({
+      outputWidth: 840,
+      outputHeight: 1736,
+      captureScale: 2,
+    });
   });
 
   it('accepts the tablet frame and rejects unknown frame styles', () => {
@@ -31,6 +52,21 @@ describe('capture settings validation', () => {
         frameStyle: 'watch',
       }),
     ).toThrow('フレーム種別が不正です');
+  });
+
+  it('accepts Android and iPhone frames and rejects unknown variants', () => {
+    expect(
+      validateCaptureSettings({
+        ...DEFAULT_SETTINGS,
+        phoneFrameVariant: 'android',
+      }).phoneFrameVariant,
+    ).toBe('android');
+    expect(() =>
+      validateCaptureSettings({
+        ...DEFAULT_SETTINGS,
+        phoneFrameVariant: 'windows-phone',
+      }),
+    ).toThrow('スマホフレーム種別が不正です');
   });
 
   it('accepts fluid backgrounds and rejects unknown background styles', () => {
@@ -108,6 +144,20 @@ describe('capture settings validation', () => {
       }),
     ).toThrow(
       '撮影倍率適用後のページ表示サイズは合計8,294,400画素以下',
+    );
+  });
+
+  it('rejects an oversized automatic mobile output', () => {
+    const settings = normalizeMobileOutput({
+      ...DEFAULT_SETTINGS,
+      deviceMode: 'mobile',
+      frameStyle: 'phone',
+      viewportWidth: 2048,
+      viewportHeight: 2048,
+    });
+
+    expect(() => validateCaptureSettings(settings)).toThrow(
+      'スクリーンショットサイズは合計8,294,400画素以下',
     );
   });
 });

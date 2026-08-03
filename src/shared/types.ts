@@ -5,6 +5,7 @@ export type CaptureScale = 1 | 2;
 export type ExportDestination = 'clipboard' | 'file';
 export type AppShortcut = 'save' | 'focus-url' | 'reload-target';
 export type MobileDeviceGroup = 'android' | 'iphone' | 'ipad';
+export type PhoneFrameVariant = 'android' | 'iphone';
 
 export interface ViewportSpec {
   width: number;
@@ -19,6 +20,7 @@ export interface CaptureSettings {
   viewportHeight: number;
   deviceMode: DeviceMode;
   frameStyle: FrameStyle;
+  phoneFrameVariant: PhoneFrameVariant;
   margin: number;
   cornerRadius: number;
   shadow: number;

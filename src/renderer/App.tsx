@@ -6,11 +6,13 @@ import {
 } from 'react';
 import {
   DEFAULT_SETTINGS,
+  addInferredPhoneFrameVariant,
   applyCustomDeviceMode,
   applyDevicePreset,
   cloneSettings,
   migrateV2Settings,
   migrateV3Settings,
+  migrateV4Settings,
 } from '@shared/presets';
 import type {
   AppShortcut,
@@ -35,7 +37,8 @@ import { usePersistentState } from './hooks/usePersistentState';
 import { useTransientNotice } from './hooks/useTransientNotice';
 import './App.css';
 
-const SETTINGS_STORAGE_KEY = 'frameshot:settings:v4';
+const SETTINGS_STORAGE_KEY = 'frameshot:settings:v5';
+const V4_SETTINGS_STORAGE_KEY = 'frameshot:settings:v4';
 const V3_SETTINGS_STORAGE_KEY = 'frameshot:settings:v3';
 const V2_SETTINGS_STORAGE_KEY = 'frameshot:settings:v2';
 
@@ -66,27 +69,44 @@ export function dismissViewportMenuState(
     : current;
 }
 
-function readStoredSettings(key: string): CaptureSettings | null {
+function readStoredSettings(
+  key: string,
+  inferPhoneFrame = false,
+): CaptureSettings | null {
   const raw = window.localStorage.getItem(key);
-  return raw ? validateCaptureSettings(JSON.parse(raw)) : null;
+  if (!raw) return null;
+  const parsed: unknown = JSON.parse(raw);
+  return validateCaptureSettings(
+    inferPhoneFrame ? addInferredPhoneFrameVariant(parsed) : parsed,
+  );
+}
+
+function finalizeRestoredSettings(settings: CaptureSettings): CaptureSettings {
+  return validateCaptureSettings(migrateV4Settings(settings));
 }
 
 export function restoreSettings(): CaptureSettings {
   try {
     const current = readStoredSettings(SETTINGS_STORAGE_KEY);
-    if (current) return current;
+    if (current) return finalizeRestoredSettings(current);
   } catch (error) {
     console.warn('Could not restore current settings:', error);
   }
   try {
-    const v3 = readStoredSettings(V3_SETTINGS_STORAGE_KEY);
-    if (v3) return migrateV3Settings(v3);
+    const v4 = readStoredSettings(V4_SETTINGS_STORAGE_KEY, true);
+    if (v4) return finalizeRestoredSettings(v4);
+  } catch (error) {
+    console.warn('Could not migrate v4 settings:', error);
+  }
+  try {
+    const v3 = readStoredSettings(V3_SETTINGS_STORAGE_KEY, true);
+    if (v3) return finalizeRestoredSettings(migrateV3Settings(v3));
   } catch (error) {
     console.warn('Could not migrate v3 settings:', error);
   }
   try {
-    const v2 = readStoredSettings(V2_SETTINGS_STORAGE_KEY);
-    if (v2) return migrateV2Settings(v2);
+    const v2 = readStoredSettings(V2_SETTINGS_STORAGE_KEY, true);
+    if (v2) return finalizeRestoredSettings(migrateV2Settings(v2));
   } catch (error) {
     console.warn('Could not migrate v2 settings:', error);
   }

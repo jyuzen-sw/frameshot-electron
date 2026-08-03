@@ -210,6 +210,10 @@
   outline-offset: 2px;
 }
 
+.number-input-wrap:has(input[readonly]) {
+  background: var(--surface-muted);
+}
+
 .number-input-wrap input {
   min-width: 0;
   width: 100%;
@@ -222,6 +226,11 @@
   font-size: 9px;
   user-select: text;
   appearance: textfield;
+}
+
+.number-input-wrap input[readonly] {
+  color: var(--muted);
+  cursor: default;
 }
 
 .number-input-wrap input::-webkit-inner-spin-button { opacity: 0.45; }
@@ -550,6 +559,12 @@
   border-color: var(--accent-strong);
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+.capture-options-row select:disabled {
+  color: var(--muted);
+  background: var(--surface-muted);
+  cursor: default;
 }
 
 .security-note {
