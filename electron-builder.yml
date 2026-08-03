@@ -1,0 +1,15 @@
+appId: com.squirrel.frameshot.frameshot
+productName: FrameShot
+
+directories:
+  output: out/make/portable.windows/x64
+
+artifactName: FrameShot-${version}-Windows-x64-Portable.${ext}
+
+win:
+  executableName: frameshot
+  icon: assets/frameshot.ico
+  target:
+    - target: portable
+      arch:
+        - x64

@@ -1,4 +1,4 @@
-name: Build release artifacts
+name: Publish Windows portable release
 
 on:
   push:
@@ -8,64 +8,327 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  windows:
-    name: Windows x64
-    runs-on: windows-latest
+  validate:
+    name: Validate signed release tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      asset_name: ${{ steps.metadata.outputs.asset_name }}
+      commit_sha: ${{ steps.metadata.outputs.commit_sha }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      tag_object_sha: ${{ steps.metadata.outputs.tag_object_sha }}
+      version: ${{ steps.metadata.outputs.version }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
+      - name: Check out trusted main source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: refs/heads/main
+          fetch-depth: 1
+          persist-credentials: false
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 26
-      - name: Verify tag matches package version
-        run: node -e "const expected = 'v' + require('./package.json').version; if (process.env.GITHUB_REF_NAME !== expected) throw new Error('Expected tag ' + expected + ', got ' + process.env.GITHUB_REF_NAME)"
+      - name: Validate tag metadata and signatures
+        id: metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! node -e "if (!/^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$/.test(process.env.RELEASE_TAG)) process.exit(1)"; then
+            echo "Release tag must use the exact vN.N.N format without leading zeroes: ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+
+          metadata_directory="${RUNNER_TEMP}/frameshot-release-validation"
+          mkdir -p "${metadata_directory}"
+          gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" > "${metadata_directory}/tag-ref.json"
+          tag_object_sha="$(node -p "JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8')).object.sha" "${metadata_directory}/tag-ref.json")"
+          gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_object_sha}" > "${metadata_directory}/tag-object.json"
+          commit_sha="$(node -p "JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8')).object.sha" "${metadata_directory}/tag-object.json")"
+          gh api "repos/${GITHUB_REPOSITORY}/git/commits/${commit_sha}" > "${metadata_directory}/commit.json"
+          gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" > "${metadata_directory}/main-ref.json"
+
+          export CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          export PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          export METADATA_DIRECTORY="${metadata_directory}"
+          node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+            import path from "node:path";
+            const read = (name) => JSON.parse(readFileSync(path.join(process.env.METADATA_DIRECTORY, name), "utf8"));
+            writeFileSync(path.join(process.env.METADATA_DIRECTORY, "metadata.json"), JSON.stringify({
+              tagName: process.env.RELEASE_TAG,
+              packageVersion: process.env.PACKAGE_VERSION,
+              checkedOutSha: process.env.CHECKED_OUT_SHA,
+              tagRef: read("tag-ref.json"),
+              tagObject: read("tag-object.json"),
+              commit: read("commit.json"),
+              mainRef: read("main-ref.json"),
+            }));
+          '
+          node scripts/verify-release-metadata.mjs "${metadata_directory}/metadata.json" > "${metadata_directory}/verified.json"
+          node -e "const fs = require('node:fs'); const value = JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); fs.appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(value).map(([key, item]) => key + '=' + item).join('\\n') + '\\n')" "${metadata_directory}/verified.json"
+
+  build-windows:
+    name: Build and verify Windows x64 portable app
+    needs: validate
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out validated commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.validate.outputs.commit_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 26
       - name: Install dependencies
         run: npm ci
       - name: Check dependencies for vulnerabilities
         run: npm run audit
       - name: Verify application
         run: npm run verify
-      - name: Build Windows installer
-        run: npm run make:windows
+      - name: Build Windows portable app
+        run: npm run make:windows:portable
       - name: Verify Electron fuses
         run: npm run verify:fuses
-      - name: Verify Windows artifacts
-        run: npm run verify:windows-artifacts
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v7
+      - name: Run packaged application E2E tests
+        run: npm run test:e2e:prepared
+      - name: Verify Windows portable artifact
+        run: npm run verify:windows-portable
+      - name: Smoke test portable wrapper
+        env:
+          PORTABLE_ASSET_NAME: ${{ needs.validate.outputs.asset_name }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $portablePath = Resolve-Path (Join-Path 'out/make/portable.windows/x64' $env:PORTABLE_ASSET_NAME)
+          $smokeRoot = Join-Path $env:RUNNER_TEMP "frameshot-portable-smoke-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $userData = Join-Path $smokeRoot 'user-data'
+          New-Item -ItemType Directory -Force -Path $smokeRoot | Out-Null
+          $env:FRAMESHOT_E2E_HEADLESS = '1'
+          $env:TEMP = $smokeRoot
+          $env:TMP = $smokeRoot
+          $port = 9222
+          $arguments = @(
+            '--frameshot-e2e-headless',
+            '--headless',
+            '--disable-gpu',
+            '--use-angle=swiftshader',
+            '--force-device-scale-factor=1',
+            '--remote-debugging-address=127.0.0.1',
+            "--remote-debugging-port=$port",
+            '--enable-logging=stderr',
+            "--user-data-dir=$userData"
+          )
+          $launcher = Start-Process -FilePath $portablePath -ArgumentList $arguments -PassThru
+          try {
+            $deadline = (Get-Date).AddMinutes(2)
+            $ready = $false
+            while ((Get-Date) -lt $deadline) {
+              if ($launcher.HasExited) {
+                throw "Portable FrameShot exited before its CDP target became ready (exit code $($launcher.ExitCode))."
+              }
+              try {
+                $targets = @(Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/list" -TimeoutSec 2)
+                $appTarget = $targets |
+                  Where-Object {
+                    $_.type -eq 'page' -and
+                    $_.url -like 'frameshot-app://app/*' -and
+                    -not [string]::IsNullOrWhiteSpace($_.webSocketDebuggerUrl)
+                  } |
+                  Select-Object -First 1
+                if ($null -ne $appTarget) {
+                  Write-Host "Portable FrameShot CDP target is ready: $($appTarget.webSocketDebuggerUrl)"
+                  $ready = $true
+                  break
+                }
+              } catch {
+                if ($launcher.HasExited) {
+                  throw "Portable FrameShot exited before its CDP target became ready (exit code $($launcher.ExitCode))."
+                }
+              }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $ready) {
+              throw 'Portable FrameShot did not expose its application CDP target within two minutes.'
+            }
+          } finally {
+            if (-not $launcher.HasExited) {
+              & taskkill.exe /PID $launcher.Id /T /F 2>$null | Out-Null
+              $global:LASTEXITCODE = 0
+            }
+            Get-CimInstance Win32_Process |
+              Where-Object { $_.CommandLine -and $_.CommandLine.Contains($smokeRoot) } |
+              ForEach-Object {
+                & taskkill.exe /PID $_.ProcessId /T /F 2>$null | Out-Null
+                $global:LASTEXITCODE = 0
+              }
+          }
+      - name: Upload portable executable
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: FrameShot-Windows-x64
-          path: out/make/squirrel.windows/x64/**
+          name: FrameShot-Windows-x64-Portable
+          path: out/make/portable.windows/x64/${{ needs.validate.outputs.asset_name }}
           if-no-files-found: error
+          retention-days: 1
 
-  linux:
-    name: Linux x64
+  publish:
+    name: Publish GitHub Release
+    needs:
+      - validate
+      - build-windows
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
+      - name: Check out validated commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.validate.outputs.commit_sha }}
+          fetch-depth: 1
+          persist-credentials: false
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 26
-      - name: Verify tag matches package version
-        run: node -e "const expected = 'v' + require('./package.json').version; if (process.env.GITHUB_REF_NAME !== expected) throw new Error('Expected tag ' + expected + ', got ' + process.env.GITHUB_REF_NAME)"
-      - name: Install dependencies
-        run: npm ci
-      - name: Package application
-        run: npm run package
-      - name: Configure Chrome sandbox permissions
+      - name: Revalidate release metadata and signatures
+        env:
+          EXPECTED_COMMIT_SHA: ${{ needs.validate.outputs.commit_sha }}
+          EXPECTED_TAG_OBJECT_SHA: ${{ needs.validate.outputs.tag_object_sha }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        shell: bash
         run: |
-          sudo chown root:root out/FrameShot-linux-x64/chrome-sandbox
-          sudo chmod 4755 out/FrameShot-linux-x64/chrome-sandbox
-          stat -c '%U:%G %a %n' out/FrameShot-linux-x64/chrome-sandbox
-      - name: Archive Linux package
-        run: tar -czf FrameShot-Linux-x64.tar.gz -C out FrameShot-linux-x64
-      - name: Upload Linux artifact
-        uses: actions/upload-artifact@v7
+          set -euo pipefail
+          metadata_directory="${RUNNER_TEMP}/frameshot-release-revalidation"
+          mkdir -p "${metadata_directory}"
+          gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" > "${metadata_directory}/tag-ref.json"
+          tag_object_sha="$(node -p "JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8')).object.sha" "${metadata_directory}/tag-ref.json")"
+          gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_object_sha}" > "${metadata_directory}/tag-object.json"
+          commit_sha="$(node -p "JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8')).object.sha" "${metadata_directory}/tag-object.json")"
+          gh api "repos/${GITHUB_REPOSITORY}/git/commits/${commit_sha}" > "${metadata_directory}/commit.json"
+          gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" > "${metadata_directory}/main-ref.json"
+
+          export CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          export PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          export METADATA_DIRECTORY="${metadata_directory}"
+          node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+            import path from "node:path";
+            const read = (name) => JSON.parse(readFileSync(path.join(process.env.METADATA_DIRECTORY, name), "utf8"));
+            writeFileSync(path.join(process.env.METADATA_DIRECTORY, "metadata.json"), JSON.stringify({
+              tagName: process.env.RELEASE_TAG,
+              packageVersion: process.env.PACKAGE_VERSION,
+              checkedOutSha: process.env.CHECKED_OUT_SHA,
+              expectedTagObjectSha: process.env.EXPECTED_TAG_OBJECT_SHA,
+              expectedCommitSha: process.env.EXPECTED_COMMIT_SHA,
+              tagRef: read("tag-ref.json"),
+              tagObject: read("tag-object.json"),
+              commit: read("commit.json"),
+              mainRef: read("main-ref.json"),
+            }));
+          '
+          node scripts/verify-release-metadata.mjs "${metadata_directory}/metadata.json"
+      - name: Refuse an existing release or draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          existing_release_ids="$(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq ".[] | select(.tag_name == \"${RELEASE_TAG}\") | .id"
+          )"
+          if [ -n "${existing_release_ids}" ]; then
+            echo "A GitHub Release or draft already exists for ${RELEASE_TAG}; it will not be overwritten." >&2
+            exit 1
+          fi
+      - name: Download verified portable executable
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: FrameShot-Linux-x64
-          path: FrameShot-Linux-x64.tar.gz
-          if-no-files-found: error
+          name: FrameShot-Windows-x64-Portable
+          path: release-assets
+      - name: Verify downloaded release asset
+        env:
+          PORTABLE_ASSET_NAME: ${{ needs.validate.outputs.asset_name }}
+        run: |
+          node -e "const fs = require('node:fs'); const path = require('node:path'); const entries = fs.readdirSync('release-assets'); if (entries.length !== 1 || entries[0] !== process.env.PORTABLE_ASSET_NAME) throw new Error('Expected exactly one release asset named ' + process.env.PORTABLE_ASSET_NAME + ', got: ' + entries.join(', ')); const stats = fs.statSync(path.join('release-assets', entries[0])); if (!stats.isFile() || stats.size === 0) throw new Error('Release asset must be a non-empty file')"
+      - name: Create draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PORTABLE_ASSET_NAME: ${{ needs.validate.outputs.asset_name }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          gh release create "${RELEASE_TAG}" "release-assets/${PORTABLE_ASSET_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --draft \
+            --verify-tag \
+            --generate-notes \
+            --title "FrameShot ${RELEASE_TAG}"
+      - name: Revalidate and publish GitHub Release
+        env:
+          EXPECTED_COMMIT_SHA: ${{ needs.validate.outputs.commit_sha }}
+          EXPECTED_TAG_OBJECT_SHA: ${{ needs.validate.outputs.tag_object_sha }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata_directory="${RUNNER_TEMP}/frameshot-release-publication"
+          mkdir -p "${metadata_directory}"
+          gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" > "${metadata_directory}/tag-ref.json"
+          tag_object_sha="$(node -p "JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8')).object.sha" "${metadata_directory}/tag-ref.json")"
+          gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_object_sha}" > "${metadata_directory}/tag-object.json"
+          commit_sha="$(node -p "JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8')).object.sha" "${metadata_directory}/tag-object.json")"
+          gh api "repos/${GITHUB_REPOSITORY}/git/commits/${commit_sha}" > "${metadata_directory}/commit.json"
+          gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" > "${metadata_directory}/main-ref.json"
+
+          export CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          export PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          export METADATA_DIRECTORY="${metadata_directory}"
+          node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+            import path from "node:path";
+            const read = (name) => JSON.parse(readFileSync(path.join(process.env.METADATA_DIRECTORY, name), "utf8"));
+            writeFileSync(path.join(process.env.METADATA_DIRECTORY, "metadata.json"), JSON.stringify({
+              tagName: process.env.RELEASE_TAG,
+              packageVersion: process.env.PACKAGE_VERSION,
+              checkedOutSha: process.env.CHECKED_OUT_SHA,
+              expectedTagObjectSha: process.env.EXPECTED_TAG_OBJECT_SHA,
+              expectedCommitSha: process.env.EXPECTED_COMMIT_SHA,
+              tagRef: read("tag-ref.json"),
+              tagObject: read("tag-object.json"),
+              commit: read("commit.json"),
+              mainRef: read("main-ref.json"),
+            }));
+          '
+          node scripts/verify-release-metadata.mjs "${metadata_directory}/metadata.json"
+          gh release edit "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --draft=false \
+            --verify-tag
+      - name: Verify published GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PORTABLE_ASSET_NAME: ${{ needs.validate.outputs.asset_name }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_json="${RUNNER_TEMP}/frameshot-published-release.json"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" > "${release_json}"
+          node -e "const fs = require('node:fs'); const release = JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); if (release.tag_name !== process.env.RELEASE_TAG) throw new Error('Published release tag mismatch'); if (release.draft !== false) throw new Error('Published release must not be a draft'); if (release.prerelease !== false) throw new Error('Published release must not be a prerelease'); if (!Array.isArray(release.assets) || release.assets.length !== 1) throw new Error('Published release must contain exactly one asset'); const asset = release.assets[0]; if (asset.name !== process.env.PORTABLE_ASSET_NAME) throw new Error('Published release asset name mismatch'); if (!Number.isSafeInteger(asset.size) || asset.size <= 0) throw new Error('Published release asset must be non-empty')" "${release_json}"

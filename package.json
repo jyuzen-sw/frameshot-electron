@@ -17,6 +17,7 @@
     "package": "electron-forge package && npm run verify:fuses",
     "make": "npm run make:windows",
     "make:windows": "electron-forge make --platform=win32 --arch=x64",
+    "make:windows:portable": "electron-forge package --platform=win32 --arch=x64 && npm run verify:fuses -- out/FrameShot-win32-x64/frameshot.exe && electron-builder --config electron-builder.yml --prepackaged out/FrameShot-win32-x64 --win portable --x64",
     "generate:windows-icon": "electron scripts/generate-windows-icon.cjs",
     "audit": "npm audit --audit-level=low",
     "typecheck": "tsc --noEmit",
@@ -25,6 +26,7 @@
     "test:e2e": "npm run package && playwright test",
     "verify": "npm run typecheck && npm run test",
     "verify:fuses": "node scripts/verify-fuses.mjs",
+    "verify:windows-portable": "node scripts/verify-windows-portable.mjs",
     "verify:windows-artifacts": "node scripts/verify-windows-artifacts.mjs",
     "demo": "node scripts/demo-server.mjs",
     "test:e2e:prepared": "playwright test"
@@ -45,6 +47,7 @@
     "@vitejs/plugin-react": "6.0.5",
     "daisyui": "5.7.9",
     "electron": "43.2.0",
+    "electron-builder": "26.15.3",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
     "vite": "8.2.0",
@@ -56,6 +59,7 @@
     "react-dom": "19.2.8"
   },
   "allowScripts": {
+    "electron-winstaller@5.4.0": false,
     "electron-winstaller@5.4.4": true
   },
   "overrides": {
