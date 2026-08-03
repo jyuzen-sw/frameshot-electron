@@ -7,19 +7,17 @@ updates:
       day: monday
       time: "09:00"
       timezone: Asia/Tokyo
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 1
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
     groups:
-      electron-forge:
+      npm-dependencies:
+        applies-to: version-updates
         patterns:
-          - electron
-          - "@electron-forge/*"
-          - "@electron/fuses"
-          - electron-squirrel-startup
-          - "@types/electron-squirrel-startup"
-      test-tooling:
-        patterns:
-          - vitest
-          - "@playwright/test"
+          - "*"
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -27,3 +25,14 @@ updates:
       day: monday
       time: "09:00"
       timezone: Asia/Tokyo
+    open-pull-requests-limit: 1
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
