@@ -5,7 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
 import { expect, test } from '@playwright/test';
-import { calculateCompositionLayout } from '../../src/shared/layout';
+import {
+  calculateCompositionLayout,
+  normalizeMobileOutput,
+} from '../../src/shared/layout';
 import type {
   CaptureSettings,
   ExportResult,
@@ -1358,7 +1361,7 @@ async function expectPreviewArtboard(
   expectedFrameStyle: CaptureSettings['frameStyle'],
 ): Promise<void> {
   const settings = await cdp.evaluate<CaptureSettings>(`
-    JSON.parse(localStorage.getItem('frameshot:settings:v4'))
+    JSON.parse(localStorage.getItem('frameshot:settings:v5'))
   `);
   const geometry = await readStudioGeometry(cdp);
   const surface = await cdp.evaluate<{
@@ -2007,7 +2010,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     expect(exportActionsReady).toBe(true);
 
     const baselineSettings = await cdp.evaluate<Record<string, unknown>>(`
-      JSON.parse(localStorage.getItem('frameshot:settings:v4'))
+      JSON.parse(localStorage.getItem('frameshot:settings:v5'))
     `);
     await targetPage.evaluate(`
       document.body.dataset.frameshotMenuState = 'preserved'
@@ -2293,11 +2296,15 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v4'),
+                localStorage.getItem('frameshot:settings:v5'),
               );
               return settings.deviceMode === 'mobile' &&
                 settings.viewportWidth === 360 &&
-                settings.viewportHeight === 808;
+                settings.viewportHeight === 808 &&
+                settings.phoneFrameVariant === 'android' &&
+                settings.outputWidth === 840 &&
+                settings.outputHeight === 1736 &&
+                settings.captureScale === 2;
             })()
           `),
         { timeout: 5_000 },
@@ -2326,7 +2333,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       ),
     ).toBe('preserved');
     const mobileSettings = await cdp.evaluate<Record<string, unknown>>(`
-      JSON.parse(localStorage.getItem('frameshot:settings:v4'))
+      JSON.parse(localStorage.getItem('frameshot:settings:v5'))
     `);
     expect(mobileSettings).toMatchObject({
       deviceMode: 'mobile',
@@ -2334,10 +2341,12 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       showUrl: false,
       viewportWidth: 360,
       viewportHeight: 808,
+      phoneFrameVariant: 'android',
+      outputWidth: 840,
+      outputHeight: 1736,
+      captureScale: 2,
     });
     for (const key of [
-      'outputWidth',
-      'outputHeight',
       'gradientFrom',
       'gradientTo',
       'margin',
@@ -2349,6 +2358,120 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         `document.querySelector('.composition-canvas')?.getAttribute('data-frame-style') ?? ''`,
       ),
     ).toBe('phone');
+    expect(
+      await cdp.evaluate<boolean>(`
+        document.querySelector('.composition-phone-android') !== null &&
+          document.querySelector('.is-android-volume') !== null &&
+          document.querySelector('.is-android-power') !== null &&
+          document.querySelector('.composition-phone-camera') === null &&
+          document.querySelector('.composition-phone-island') === null
+      `),
+    ).toBe(true);
+    await expectPreviewArtboard(cdp, 'phone');
+
+    await cdp.evaluate(`
+      document.querySelector('button[aria-controls="settings-panel"]')?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const width = document.querySelector(
+                'input[aria-label="スクリーンショットサイズ 幅"]',
+              );
+              const height = document.querySelector(
+                'input[aria-label="スクリーンショットサイズ 高さ"]',
+              );
+              const pageWidth = document.querySelector(
+                'input[aria-label="ページ表示サイズ 幅"]',
+              );
+              const quality = document.querySelector(
+                '.capture-options-row select',
+              );
+              return width instanceof HTMLInputElement &&
+                height instanceof HTMLInputElement &&
+                pageWidth instanceof HTMLInputElement &&
+                quality instanceof HTMLSelectElement &&
+                width.readOnly &&
+                height.readOnly &&
+                !pageWidth.readOnly &&
+                quality.disabled &&
+                quality.value === '2' &&
+                document.querySelector('.quick-size-row') === null &&
+                document.querySelector('.subheading em')?.textContent ===
+                  'AUTO';
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      document.querySelector('.settings-close-button')?.click()
+    `);
+    await waitForSettingsPanelToClose(cdp);
+
+    await cdp.evaluate(`
+      document.querySelector(
+        '[data-device-mode="mobile"] .viewport-menu-trigger',
+      )?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="mobile"] [role="menu"]',
+            ) !== null
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      (() => {
+        const preset = Array.from(
+          document.querySelectorAll(
+            '[data-device-mode="mobile"] [role="menuitemradio"]',
+          ),
+        ).find(
+          (button) =>
+            button.querySelector('b')?.textContent === 'iPhone 17',
+        );
+        if (!(preset instanceof HTMLButtonElement)) {
+          throw new Error('The iPhone 17 viewport preset was not found.');
+        }
+        preset.click();
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v5'),
+              );
+              return settings.deviceMode === 'mobile' &&
+                settings.frameStyle === 'phone' &&
+                settings.phoneFrameVariant === 'iphone' &&
+                settings.viewportWidth === 402 &&
+                settings.viewportHeight === 874 &&
+                settings.outputWidth === 924 &&
+                settings.outputHeight === 1868 &&
+                settings.captureScale === 2 &&
+                document.querySelector('.composition-phone-iphone') !== null &&
+                document.querySelector('.is-iphone-action') !== null &&
+                document.querySelector('.is-iphone-volume-up') !== null &&
+                document.querySelector('.is-iphone-volume-down') !== null &&
+                document.querySelector('.is-iphone-power') !== null &&
+                document.querySelector('.composition-phone-island') === null &&
+                document.querySelector('.composition-phone-camera') === null &&
+                document.querySelector('.composition-phone-home') === null;
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
     await expectPreviewArtboard(cdp, 'phone');
 
     await cdp.evaluate(`
@@ -2389,17 +2512,22 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v4'),
+                localStorage.getItem('frameshot:settings:v5'),
               );
               return settings.deviceMode === 'mobile' &&
                 settings.frameStyle === 'tablet' &&
+                settings.phoneFrameVariant === 'iphone' &&
                 settings.viewportWidth === 1024 &&
                 settings.viewportHeight === 1366 &&
+                settings.outputWidth === 2224 &&
+                settings.outputHeight === 2908 &&
+                settings.captureScale === 2 &&
                 document.querySelector(
                   '.composition-canvas[data-frame-style="tablet"]',
                 ) !== null &&
                 document.querySelector('.composition-tablet-camera') !== null &&
                 document.querySelector('.composition-phone-island') === null &&
+                document.querySelector('.composition-phone-camera') === null &&
                 document.querySelector('.composition-phone-home') === null;
             })()
           `),
@@ -2499,11 +2627,14 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v4'),
+                localStorage.getItem('frameshot:settings:v5'),
               );
               return settings.frameStyle === 'browser' &&
                 settings.viewportWidth === 1024 &&
-                settings.viewportHeight === 1366;
+                settings.viewportHeight === 1366 &&
+                settings.outputWidth === 2112 &&
+                settings.outputHeight === 2912 &&
+                settings.captureScale === 2;
             })()
           `),
         { timeout: 5_000 },
@@ -2576,10 +2707,15 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v4'),
+                localStorage.getItem('frameshot:settings:v5'),
               );
               return settings.viewportWidth === 414 &&
+                settings.viewportHeight === 1366 &&
                 settings.frameStyle === 'phone' &&
+                settings.phoneFrameVariant === 'iphone' &&
+                settings.outputWidth === 948 &&
+                settings.outputHeight === 2852 &&
+                settings.captureScale === 2 &&
                 settings.showUrl === false;
             })()
           `),
@@ -2642,7 +2778,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v4'),
+                localStorage.getItem('frameshot:settings:v5'),
               );
               return settings.deviceMode === 'desktop' &&
                 settings.outputWidth === 2560 &&
@@ -2695,7 +2831,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v4'),
+                localStorage.getItem('frameshot:settings:v5'),
               );
               return settings.deviceMode === 'desktop' &&
                 settings.outputWidth === 1920 &&
@@ -2724,7 +2860,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     ).toBe('preserved');
 
     const desktopSettings = await cdp.evaluate<CaptureSettings>(`
-      JSON.parse(localStorage.getItem('frameshot:settings:v4'))
+      JSON.parse(localStorage.getItem('frameshot:settings:v5'))
     `);
     expect(desktopSettings).toMatchObject({
       deviceMode: 'desktop',
@@ -2789,7 +2925,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       const clipboardError = await cdp.evaluate<string>(`
         (async () => {
           const settings = JSON.parse(
-            localStorage.getItem('frameshot:settings:v4'),
+            localStorage.getItem('frameshot:settings:v5'),
           );
           try {
             await window.frameShot.exportImage(settings, 'clipboard');
@@ -2820,7 +2956,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         const directExport = await cdp.evaluate<ExportResult>(`
           (async () => {
             const settings = JSON.parse(
-              localStorage.getItem('frameshot:settings:v4'),
+              localStorage.getItem('frameshot:settings:v5'),
             );
             return window.frameShot.exportImage(
               {
@@ -2900,7 +3036,51 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         });
       }
 
-      const ipadSettings: CaptureSettings = {
+      const iphoneSettings = normalizeMobileOutput({
+        ...desktopSettings,
+        deviceMode: 'mobile',
+        frameStyle: 'phone',
+        phoneFrameVariant: 'iphone',
+        pauseAnimations: !HEADLESS_E2E,
+        showUrl: false,
+        viewportHeight: 874,
+        viewportWidth: 402,
+      });
+      const iphoneExport = await cdp.evaluate<ExportResult>(`
+        window.frameShot.exportImage(
+          ${JSON.stringify(iphoneSettings)},
+          ${JSON.stringify(exportDestination)},
+        )
+      `);
+      expect(iphoneExport).toMatchObject({
+        destination: exportDestination,
+        completed: true,
+        width: 924,
+        height: 1868,
+      });
+      const iphoneProbe = await exportedPng(
+        tempDirectory,
+        'capture-iphone-phone',
+        iphoneExport,
+      );
+      expect(iphoneProbe).toMatchObject({ width: 924, height: 1868 });
+      const iphonePixels = await samplePngPixels(
+        cdp,
+        iphoneProbe.pngPath,
+        compositionViewportSamplePoints(iphoneSettings),
+      );
+      const expectedIphonePixels = [
+        [255, 0, 85, 255],
+        [0, 229, 255, 255],
+        [255, 214, 0, 255],
+        [140, 82, 255, 255],
+        [220, 38, 38, 255],
+      ] as const;
+      for (const [index, expectedPixel] of expectedIphonePixels.entries()) {
+        expectPixelNear(iphonePixels[index] ?? [], expectedPixel);
+      }
+
+      const ipadSettings = normalizeMobileOutput({
         ...desktopSettings,
         captureScale: 2,
         deviceMode: 'mobile',
@@ -2909,7 +3089,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         showUrl: false,
         viewportHeight: 1024,
         viewportWidth: 768,
-      };
+      });
       const ipadExport = await cdp.evaluate<ExportResult>(`
         window.frameShot.exportImage(
           ${JSON.stringify(ipadSettings)},
@@ -2920,9 +3100,10 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       expect(ipadExport).toMatchObject({
         destination: exportDestination,
         completed: true,
-        width: ipadArtboard.width,
-        height: ipadArtboard.height,
+        width: 1712,
+        height: 2224,
       });
+      expect(ipadArtboard).toMatchObject({ width: 1712, height: 2224 });
       const ipadProbe = await exportedPng(
         tempDirectory,
         'capture-ipad-tablet',
@@ -2979,7 +3160,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         width: 1856,
       });
       logE2e(
-        'The 1x, 2x, and iPad exports preserved the requested logical viewports and Tablet frame.',
+        'The 1x, 2x, iPhone, and iPad exports preserved their exact output and logical viewport sizes.',
       );
     }
 
@@ -3008,7 +3189,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
                 '.gradient-swatch[title="Sea Glass Flow"]',
               );
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v4'),
+                localStorage.getItem('frameshot:settings:v5'),
               );
               return artboard instanceof HTMLElement &&
                 glow instanceof HTMLElement &&
@@ -3218,7 +3399,7 @@ test('closes the application window without main process errors', async () => {
     await app.cdp.evaluate(`
       (() => {
         const settings = {
-          ...JSON.parse(localStorage.getItem('frameshot:settings:v4')),
+          ...JSON.parse(localStorage.getItem('frameshot:settings:v5')),
           captureScale: 2,
           pauseAnimations: true,
           waitMs: 5000,
