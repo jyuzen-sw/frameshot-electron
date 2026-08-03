@@ -128,15 +128,19 @@ export function validateCaptureSettings(value: unknown): CaptureSettings {
     showUrl: Boolean(input.showUrl),
   };
   settings = normalizeMobileOutput(settings);
+  const outputSizeName =
+    settings.deviceMode === 'mobile'
+      ? '自動出力サイズ'
+      : 'スクリーンショットサイズ';
   settings.outputWidth = boundedInteger(
     settings.outputWidth,
-    'スクリーンショットサイズ 幅',
+    `${outputSizeName} 幅`,
     320,
     7680,
   );
   settings.outputHeight = boundedInteger(
     settings.outputHeight,
-    'スクリーンショットサイズ 高さ',
+    `${outputSizeName} 高さ`,
     320,
     7680,
   );
@@ -144,7 +148,7 @@ export function validateCaptureSettings(value: unknown): CaptureSettings {
   const outputPixels = settings.outputWidth * settings.outputHeight;
   if (outputPixels > MAX_CAPTURE_PIXELS) {
     throw new Error(
-      `スクリーンショットサイズは合計${MAX_CAPTURE_PIXELS.toLocaleString('ja-JP')}画素以下にしてください。`,
+      `${outputSizeName}は合計${MAX_CAPTURE_PIXELS.toLocaleString('ja-JP')}画素以下にしてください。`,
     );
   }
 

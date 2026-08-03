@@ -93,6 +93,24 @@ describe('capture settings validation', () => {
     ).toThrow('ページ表示サイズ 高さ');
   });
 
+  it.each([
+    [3840, 240, '自動出力サイズ 幅'],
+    [240, 3840, '自動出力サイズ 高さ'],
+  ] as const)(
+    'names an oversized %sx%s mobile output as derived',
+    (viewportWidth, viewportHeight, errorField) => {
+      expect(() =>
+        validateCaptureSettings({
+          ...DEFAULT_SETTINGS,
+          deviceMode: 'mobile',
+          frameStyle: 'phone',
+          viewportWidth,
+          viewportHeight,
+        }),
+      ).toThrow(errorField);
+    },
+  );
+
   it('rejects malformed colors', () => {
     expect(() =>
       validateCaptureSettings({
@@ -157,7 +175,7 @@ describe('capture settings validation', () => {
     });
 
     expect(() => validateCaptureSettings(settings)).toThrow(
-      'スクリーンショットサイズは合計8,294,400画素以下',
+      '自動出力サイズは合計8,294,400画素以下',
     );
   });
 });
