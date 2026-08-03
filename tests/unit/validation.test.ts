@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SETTINGS,
-  VIEWPORT_PRESETS,
-  applyViewportPreset,
+  DEVICE_PRESETS,
+  applyDevicePreset,
 } from '@shared/presets';
 import {
   MAX_CAPTURE_PIXELS,
@@ -11,9 +11,9 @@ import {
 } from '@shared/validation';
 
 describe('capture settings validation', () => {
-  it('accepts every built-in viewport preset', () => {
-    for (const preset of VIEWPORT_PRESETS) {
-      const settings = applyViewportPreset(DEFAULT_SETTINGS, preset);
+  it('accepts every built-in screenshot and device preset', () => {
+    for (const preset of DEVICE_PRESETS) {
+      const settings = applyDevicePreset(DEFAULT_SETTINGS, preset);
       expect(validateCaptureSettings(settings)).toEqual(settings);
     }
   });
@@ -48,9 +48,22 @@ describe('capture settings validation', () => {
     ).toThrow('背景スタイルが不正です');
   });
 
-  it('rejects oversized output and malformed colors', () => {
-    expect(() => validateCaptureSettings({ ...DEFAULT_SETTINGS, outputWidth: 9000 })).toThrow();
-    expect(() => validateCaptureSettings({ ...DEFAULT_SETTINGS, gradientFrom: 'lavender' })).toThrow();
+  it('names screenshot and page display fields in validation errors', () => {
+    expect(() =>
+      validateCaptureSettings({ ...DEFAULT_SETTINGS, outputWidth: 9000 }),
+    ).toThrow('スクリーンショットサイズ 幅');
+    expect(() =>
+      validateCaptureSettings({ ...DEFAULT_SETTINGS, viewportHeight: 5000 }),
+    ).toThrow('ページ表示サイズ 高さ');
+  });
+
+  it('rejects malformed colors', () => {
+    expect(() =>
+      validateCaptureSettings({
+        ...DEFAULT_SETTINGS,
+        gradientFrom: 'lavender',
+      }),
+    ).toThrow();
   });
 
   it('accepts output and scaled viewport images up to the 4K pixel budget', () => {
@@ -82,7 +95,7 @@ describe('capture settings validation', () => {
         outputHeight: 2161,
         captureScale: 1,
       }),
-    ).toThrow('出力画像は合計8,294,400画素以下');
+    ).toThrow('スクリーンショットサイズは合計8,294,400画素以下');
   });
 
   it('rejects scaled viewport images above the pixel budget', () => {
@@ -93,7 +106,9 @@ describe('capture settings validation', () => {
         viewportHeight: 1081,
         captureScale: 2,
       }),
-    ).toThrow('撮影倍率適用後のページ画像は合計8,294,400画素以下');
+    ).toThrow(
+      '撮影倍率適用後のページ表示サイズは合計8,294,400画素以下',
+    );
   });
 });
 

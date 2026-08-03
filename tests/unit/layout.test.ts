@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BROWSER_BAR_HEIGHT,
   calculateCompositionLayout,
   calculatePreviewCanvasSize,
   roundRectangleEdges,
@@ -7,17 +8,27 @@ import {
 import { DEFAULT_SETTINGS } from '@shared/presets';
 
 describe('calculateCompositionLayout', () => {
-  it('uses the default artboard margin and desktop corner radii', () => {
-    expect(DEFAULT_SETTINGS.margin).toBe(32);
-    expect(DEFAULT_SETTINGS.cornerRadius).toBe(8);
-
+  it('fits the default Full HD browser and margin into a 1920x1080 screenshot', () => {
     const browser = calculateCompositionLayout(DEFAULT_SETTINGS);
 
     expect(browser.artboard).toEqual({
-      x: 164,
+      x: 0,
       y: 0,
-      width: 1592,
+      width: 1920,
       height: 1080,
+    });
+    expect(browser.scale).toBe(1);
+    expect(browser.frame).toMatchObject({
+      x: 32,
+      y: 32,
+      width: 1856,
+      height: 1016,
+    });
+    expect(browser.screen).toMatchObject({
+      x: 32,
+      y: 90,
+      width: 1856,
+      height: 958,
     });
     expect(browser.frame.radius).toBe(8);
     expect(browser.screen.radius).toBe(6);
@@ -186,7 +197,7 @@ describe('calculateCompositionLayout', () => {
   it('keeps the browser controls inside the fitted frame', () => {
     const layout = calculateCompositionLayout(DEFAULT_SETTINGS);
 
-    expect(layout.browserBarHeight).toBeGreaterThan(0);
+    expect(layout.browserBarHeight / layout.scale).toBe(BROWSER_BAR_HEIGHT);
     expect(layout.browserAddressHeight).toBeCloseTo(
       layout.browserBarHeight * 0.56,
       5,

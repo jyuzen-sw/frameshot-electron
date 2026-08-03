@@ -29,7 +29,8 @@ describe('renderer selection accessibility', () => {
         settings: { ...DEFAULT_SETTINGS, frameStyle: 'tablet' },
         currentHost: null,
         certificateAllowed: false,
-        focusViewportRequest: 0,
+        focusSizeRequest: 0,
+        focusSizeTarget: 'page',
         onClose: vi.fn(),
         onSettingsChange,
         onCertificateAllowed: vi.fn(),
@@ -50,8 +51,14 @@ describe('renderer selection accessibility', () => {
     expect(buttonMarkup(markup, 'None')).toContain(
       'aria-pressed="false"',
     );
-    expect(markup).toContain('構図キャンバス（最大範囲）');
-    expect(markup).toContain('書き出し予定 1654 × 1080');
+    expect(markup).toContain('スクリーンショットサイズ');
+    expect(markup).toContain(
+      '背景・余白・フレームを含む画像全体の最大サイズと縦横比',
+    );
+    expect(markup).toContain('ページ表示サイズ');
+    expect(markup).toContain('aria-label="スクリーンショットサイズ 幅"');
+    expect(markup).toContain('aria-label="ページ表示サイズ 幅"');
+    expect(markup).toContain('書き出し予定 1920 × 1048');
   });
 
   it('uses a single labelled radio group for viewport choices', () => {
@@ -64,28 +71,64 @@ describe('renderer selection accessibility', () => {
           frameStyle: 'tablet',
           viewportWidth: 1024,
           viewportHeight: 1366,
+          showUrl: false,
         },
-        onViewportPreset: vi.fn(),
-        onCustomViewport: vi.fn(),
+        onDevicePreset: vi.fn(),
+        onCustomSize: vi.fn(),
         onDismiss: vi.fn(),
       }),
     );
 
-    expect(markup.match(/role="menuitemradio"/g)).toHaveLength(8);
+    expect(markup.match(/role="menuitemradio"/g)).toHaveLength(7);
+    expect(markup).toContain(
+      'aria-label="Phone ページ表示サイズプリセット"',
+    );
     expect(buttonMarkup(markup, 'iPad Pro 12.9″')).toContain(
       'aria-checked="true"',
     );
-    expect(buttonMarkup(markup, 'Phone')).toContain(
+    expect(buttonMarkup(markup, 'Google Pixel 10')).toContain(
       'aria-checked="false"',
     );
     expect(markup).toContain(
-      'role="group" aria-labelledby="viewport-mobile-phone-heading"',
+      'role="group" aria-labelledby="viewport-mobile-android-heading"',
     );
     expect(markup).toContain(
-      'id="viewport-mobile-phone-heading">Phone</span>',
+      'id="viewport-mobile-android-heading">Android</span>',
     );
-    expect(markup).not.toContain('aria-label="Phone presets"');
+    expect(markup).toContain(
+      'id="viewport-mobile-iphone-heading">iPhone</span>',
+    );
+    expect(markup).toContain(
+      'id="viewport-mobile-ipad-heading">iPad</span>',
+    );
     expect(markup).not.toContain('aria-label="選択中"');
+  });
+
+  it('presents desktop choices as screenshot resolutions with page sizes', () => {
+    const markup = renderToStaticMarkup(
+      createElement(ViewportMenuList, {
+        deviceMode: 'desktop',
+        settings: DEFAULT_SETTINGS,
+        onDevicePreset: vi.fn(),
+        onCustomSize: vi.fn(),
+        onDismiss: vi.fn(),
+      }),
+    );
+
+    expect(markup.match(/role="menuitemradio"/g)).toHaveLength(5);
+    expect(markup).toContain(
+      'aria-label="Desktop スクリーンショットサイズプリセット"',
+    );
+    expect(markup).toContain(
+      'id="viewport-desktop-resolution-heading">画面解像度</span>',
+    );
+    expect(buttonMarkup(markup, 'Full HD')).toContain(
+      '1920 × 1080 · ページ表示サイズ 1856 × 958',
+    );
+    expect(buttonMarkup(markup, 'Full HD')).toContain(
+      'aria-checked="true"',
+    );
+    expect(markup).not.toContain('<b>Desktop</b>');
   });
 
   it('offers all ten background swatches and the fluid style selector', () => {
@@ -103,7 +146,8 @@ describe('renderer selection accessibility', () => {
         },
         currentHost: null,
         certificateAllowed: false,
-        focusViewportRequest: 0,
+        focusSizeRequest: 0,
+        focusSizeTarget: 'page',
         onClose: vi.fn(),
         onSettingsChange,
         onCertificateAllowed: vi.fn(),
@@ -143,7 +187,8 @@ describe('renderer selection accessibility', () => {
         },
         currentHost: null,
         certificateAllowed: false,
-        focusViewportRequest: 0,
+        focusSizeRequest: 0,
+        focusSizeTarget: 'page',
         onClose: vi.fn(),
         onSettingsChange,
         onCertificateAllowed: vi.fn(),
