@@ -39,6 +39,10 @@ function pageSlotOpeningTag(markup: string): string {
   return tag;
 }
 
+function cssLength(value: number): string {
+  return value === 0 ? '0' : `${value}px`;
+}
+
 describe('CompositionCanvas', () => {
   it('uses the same browser-frame markup for live and image slots', () => {
     const live = renderToStaticMarkup(
@@ -177,7 +181,7 @@ describe('CompositionCanvas', () => {
 
     expect(canvasOpeningTag(markup)).not.toContain('background-soft');
     expect(artboardOpeningTag(markup)).toContain(
-      `left:${layout.artboard.x}px`,
+      `left:${cssLength(layout.artboard.x)}`,
     );
     expect(artboardOpeningTag(markup)).toContain(
       `data-artboard-width="${layout.artboard.width}"`,
@@ -195,7 +199,7 @@ describe('CompositionCanvas', () => {
 
   it.each([
     ['settings', '設定を編集中'],
-    ['viewport-menu', '表示サイズを選択中'],
+    ['viewport-menu', 'サイズプリセットを選択中'],
   ] as const)(
     'shows a dedicated placeholder while suspended by %s',
     (pageSuspensionReason, heading) => {

@@ -7,7 +7,7 @@ interface RectangleEdges {
   bottom: number;
 }
 
-const BROWSER_BAR = 58;
+export const BROWSER_BAR_HEIGHT = 58;
 const PHONE_LEFT = 24;
 const PHONE_RIGHT = 24;
 const PHONE_TOP = 54;
@@ -57,8 +57,8 @@ export function calculateCompositionLayout(
   let screenOffsetY = 0;
 
   if (settings.frameStyle === 'browser') {
-    intrinsicHeight += BROWSER_BAR;
-    screenOffsetY = BROWSER_BAR;
+    intrinsicHeight += BROWSER_BAR_HEIGHT;
+    screenOffsetY = BROWSER_BAR_HEIGHT;
   } else if (settings.frameStyle === 'phone') {
     intrinsicWidth += PHONE_LEFT + PHONE_RIGHT;
     intrinsicHeight += PHONE_TOP + PHONE_BOTTOM;
@@ -124,10 +124,11 @@ export function calculateCompositionLayout(
       height: screenHeight,
       radius: screenRadius,
     },
-    browserBarHeight: settings.frameStyle === 'browser' ? BROWSER_BAR * scale : 0,
+    browserBarHeight:
+      settings.frameStyle === 'browser' ? BROWSER_BAR_HEIGHT * scale : 0,
     browserAddressHeight:
       settings.frameStyle === 'browser'
-        ? BROWSER_BAR * scale * BROWSER_ADDRESS_HEIGHT_RATIO
+        ? BROWSER_BAR_HEIGHT * scale * BROWSER_ADDRESS_HEIGHT_RATIO
         : 0,
     phoneBezel: {
       left: settings.frameStyle === 'phone' ? PHONE_LEFT * scale : 0,

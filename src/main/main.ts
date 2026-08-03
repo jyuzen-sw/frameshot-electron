@@ -71,7 +71,7 @@ async function createMainWindow(): Promise<void> {
     minHeight: 700,
     useContentSize: true,
     show: false,
-    backgroundColor: '#0a0d14',
+    backgroundColor: '#f3f5f9',
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

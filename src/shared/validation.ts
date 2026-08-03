@@ -78,10 +78,30 @@ export function validateCaptureSettings(value: unknown): CaptureSettings {
   const input = value as Partial<CaptureSettings>;
 
   const settings: CaptureSettings = {
-    outputWidth: boundedInteger(input.outputWidth, '出力幅', 320, 7680),
-    outputHeight: boundedInteger(input.outputHeight, '出力高さ', 320, 7680),
-    viewportWidth: boundedInteger(input.viewportWidth, '表示幅', 240, 3840),
-    viewportHeight: boundedInteger(input.viewportHeight, '表示高さ', 240, 3840),
+    outputWidth: boundedInteger(
+      input.outputWidth,
+      'スクリーンショットサイズ 幅',
+      320,
+      7680,
+    ),
+    outputHeight: boundedInteger(
+      input.outputHeight,
+      'スクリーンショットサイズ 高さ',
+      320,
+      7680,
+    ),
+    viewportWidth: boundedInteger(
+      input.viewportWidth,
+      'ページ表示サイズ 幅',
+      240,
+      3840,
+    ),
+    viewportHeight: boundedInteger(
+      input.viewportHeight,
+      'ページ表示サイズ 高さ',
+      240,
+      3840,
+    ),
     deviceMode: deviceMode(input.deviceMode),
     frameStyle: frameStyle(input.frameStyle),
     margin: boundedInteger(input.margin, '余白', 0, 2000),
@@ -101,7 +121,7 @@ export function validateCaptureSettings(value: unknown): CaptureSettings {
   const outputPixels = settings.outputWidth * settings.outputHeight;
   if (outputPixels > MAX_CAPTURE_PIXELS) {
     throw new Error(
-      `出力画像は合計${MAX_CAPTURE_PIXELS.toLocaleString('ja-JP')}画素以下にしてください。`,
+      `スクリーンショットサイズは合計${MAX_CAPTURE_PIXELS.toLocaleString('ja-JP')}画素以下にしてください。`,
     );
   }
 
@@ -112,7 +132,7 @@ export function validateCaptureSettings(value: unknown): CaptureSettings {
   const pagePixels = physicalViewportWidth * physicalViewportHeight;
   if (pagePixels > MAX_CAPTURE_PIXELS) {
     throw new Error(
-      `撮影倍率適用後のページ画像は合計${MAX_CAPTURE_PIXELS.toLocaleString('ja-JP')}画素以下にしてください。`,
+      `撮影倍率適用後のページ表示サイズは合計${MAX_CAPTURE_PIXELS.toLocaleString('ja-JP')}画素以下にしてください。`,
     );
   }
 

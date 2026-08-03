@@ -6,11 +6,15 @@ FrameShotは、操作UI、対象ページ、出力処理を別々のWebContents�
 
 ### Renderer（操作UI）
 
-Reactで構築され、URL、viewportプリセット、出力設定、ライブキャンバスを担当します。ファイルシステムやElectron APIには直接アクセスせず、preloadが `contextBridge` で公開する限定的な `window.frameShot` APIだけを使用します。
+Reactで構築され、URL、Desktop解像度とモバイル機種のプリセット、スクリーンショット設定、ライブキャンバスを担当します。ファイルシステムやElectron APIには直接アクセスせず、preloadが `contextBridge` で公開する限定的な `window.frameShot` APIだけを使用します。
 
-Desktop / Mobileのヘッダーリストは、デバイス種別、フレーム、論理ビューポートをまとめて変更します。Customを選んだ場合に設定パネルを開き、ページ表示領域の幅入力へフォーカスします。Appは設定パネル、Desktop / Mobileメニュー、未表示を単一の排他状態として管理します。Escapeでメニューを閉じた場合だけトリガーへフォーカスを戻し、外側クリックでは現在のフォーカスを強制移動しません。フローティングUIを開閉してもworkspaceのレイアウト、キャンバス、ページ表示領域の座標と寸法を変えません。
+DesktopのヘッダーリストはFull HD、WQHD、UWQHD、4K UHDの画面解像度を選び、スクリーンショットサイズ、ページ表示サイズ、Browserフレーム、URL表示、余白32pxをまとめて変更します。PhoneのヘッダーリストはAndroid、iPhone、iPadのセクションに分かれ、機種に対応するページ表示サイズとPhone / Tabletフレームを変更しますが、スクリーンショットサイズと余白は維持します。DesktopのCustomはスクリーンショットサイズの幅、PhoneのCustomはページ表示サイズの幅へフォーカスします。Appは設定パネル、Desktop / Phoneメニュー、未表示を単一の排他状態として管理します。Escapeでメニューを閉じた場合だけトリガーへフォーカスを戻し、外側クリックでは現在のフォーカスを強制移動しません。フローティングUIを開閉してもworkspaceのレイアウト、キャンバス、ページ表示サイズの座標と寸法を変えません。
 
-64pxのAppHeaderはブランド、ページ操作、viewport、書き出し操作をまとめます。ブランド領域は通常の製品名と、処理中、完了、エラーを排他的に表示するHeaderFeedbackを兼ねます。通知はWebContentsViewのbounds外に置くため、対象ページを隠したり状態を失わせたりせずに表示できます。対象ページの読み込みエラーは成功したmain-frame遷移まで保持し、ヘッダーからキャッシュを無視して再試行できます。Electronのネイティブアプリケーションメニューは無効化します。保存、URLフォーカス、再読み込みのショートカットは、Main Processが対象ページ側の入力も捕捉して操作UIへ中継するため、どちらにフォーカスがあっても動作します。
+共有プリセットは、完成サイズと余白を持つ `DesktopResolutionPreset` と、機種グループとページ表示サイズを持つ `MobileDevicePreset` の判別可能なunionです。適用後も永続化する `CaptureSettings` のshapeは変えず、プリセットは既存フィールドへ値を展開します。
+
+64pxのAppHeaderはブランド、ページ操作、プリセット、書き出し操作をまとめます。ブランド領域は通常の製品名と、処理中、完了、エラーを排他的に表示するHeaderFeedbackを兼ねます。通知はWebContentsViewのbounds外に置くため、対象ページを隠したり状態を失わせたりせずに表示できます。対象ページの読み込みエラーは成功したmain-frame遷移まで保持し、ヘッダーからキャッシュを無視して再試行できます。Electronのネイティブアプリケーションメニューは無効化します。保存、URLフォーカス、再読み込みのショートカットは、Main Processが対象ページ側の入力も捕捉して操作UIへ中継するため、どちらにフォーカスがあっても動作します。
+
+操作UIはヘッダー、作業領域、設定パネル、メニュー、通知を含めたライトテーマです。淡い青灰の作業領域、白いsurface、濃紺の文字、淡い紫のactive状態を共通のsemantic tokenで表現します。書き出し用のCompositionCanvasはこれらのtokenから分離し、操作UIのテーマ変更が完成PNGへ波及しないようにします。
 
 本番ビルドは `file://` ではなく `frameshot-app://app/` からbundle内のファイルだけを配信します。protocol handlerはhost、path、methodを検証してpath traversalを拒否し、index HTMLへ次の制約を含むCSPを付けます。
 
@@ -40,13 +44,26 @@ Rendererは `CompositionCanvas` を実際の出力寸法で構築し、CSS trans
 
 これにより、対象ページは本物のChromiumページとしてクリック、スクロール、入力できます。ブラウザバーやスマホベゼルはRenderer側の装飾です。
 
-ネイティブの `WebContentsView` はRendererのDOMより前面に描画されるため、設定パネルまたはDesktop / Mobileメニューの表示中は対象ビューへ `visible: false` を送り、ライブページを一時的に隠します。DOM側には「設定を編集中」または「表示サイズを選択中」と理由を表示します。閉じると同じ `WebContentsView` を同じ座標へ再表示し、reloadや再生成を行わないため、URL、スクロール、入力、sessionの状態を維持します。
+ネイティブの `WebContentsView` はRendererのDOMより前面に描画されるため、設定パネルまたはDesktop / Phoneメニューの表示中は対象ビューへ `visible: false` を送り、ライブページを一時的に隠します。DOM側には「設定を編集中」または「サイズプリセットを選択中」と理由を表示します。閉じると同じ `WebContentsView` を同じ座標へ再表示し、reloadや再生成を行わないため、URL、スクロール、入力、sessionの状態を維持します。
 
 ## 共通キャンバス
 
-ライブ表示と書き出しは、同じ `CompositionCanvas`、`BrowserFrame`、コンポーネント所有のplain CSSを使います。外側は設定した出力幅・高さを上限とする黒い最大構図キャンバス、内側は背景、glow、grain、フレーム、ページ領域を含むアートボードです。アートボードはBrowser / Phone / Tablet / Noneの装飾を含むフレーム外周から有効余白だけ広げ、最大構図キャンバスへクランプしたうえで、左右・上下の対向辺を個別に整数へ丸めます。フレーム座標はアートボード原点からの相対値に変換し、背景効果と影は `overflow: hidden` で内側に閉じ込めます。
+ライブ表示と書き出しは、同じ `CompositionCanvas`、`BrowserFrame`、コンポーネント所有のplain CSSを使います。外側は背景、余白、フレームを含む完成画像全体の最大幅・高さと縦横比を表すスクリーンショットキャンバス、内側は背景、glow、grain、フレーム、ページ表示部分を含むアートボードです。アートボードはBrowser / Phone / Tablet / Noneの装飾を含むフレーム外周から有効余白だけ広げ、スクリーンショットサイズへクランプしたうえで、左右・上下の対向辺を個別に整数へ丸めます。フレーム座標はアートボード原点からの相対値に変換し、背景効果と影は `overflow: hidden` で内側に閉じ込めます。
 
-既定余白は32pxです。最大構図キャンバスの縦横比に合わせて余った黒い領域はライブプレビューで構図を確認するためだけに表示し、PNGには含めません。既定の1920 × 1080キャンバス、1440 × 900 BrowserではアートボードとPNGが1592 × 1080になります。DesktopのフレームとViewportにはそれぞれ8pxと6pxの角丸を適用し、Phone / Tablet固有の角丸は変更しません。
+「ページ表示サイズ」は、対象Webページを何pxの画面として表示するかを表す論理ビューポートです。既定のFull HDプリセットではスクリーンショットサイズが1920 × 1080、ページ表示サイズが1856 × 958、Browser barが58px、余白が各辺32pxとなり、アートボードとPNGは1920 × 1080です。Desktopの標準プリセットは次の値を持ち、ページ表示サイズを `幅 - 64px` と `高さ - 64px - 58px` で算出します。
+
+| プリセット | スクリーンショットサイズ | ページ表示サイズ |
+|---|---:|---:|
+| Full HD | 1920 × 1080 | 1856 × 958 |
+| WQHD | 2560 × 1440 | 2496 × 1318 |
+| UWQHD | 3440 × 1440 | 3376 × 1318 |
+| 4K UHD | 3840 × 2160 | 3776 × 2038 |
+
+WQHD、UWQHD、4K UHDは、2×取得がページ画像の画素上限を超える場合に1×へ変更し、Rendererから通知します。Full HDは選択中の1× / 2×を維持します。Desktopプリセットとレイアウト計算は同じBrowser bar 58pxの定数を参照し、完成サイズとページ表示サイズの計算がずれないようにします。
+
+モバイル機種プリセットは、Google Pixel 10（360 × 808）、Samsung Galaxy S24（360 × 780）、iPhone 17（402 × 874）、iPhone 17 Pro Max（440 × 956）、iPad（768 × 1024）、iPad Pro 12.9″（1024 × 1366）のページ表示サイズを持ちます。これらはサイズ指定であり、UA、DPR、safe area、OSやモバイルブラウザのUI、機種固有フレームの実機エミュレーションは行いません。
+
+スクリーンショットキャンバスの縦横比に合わせて余った領域はライブプレビューで構図を確認するためだけに表示し、PNGには含めません。Desktopのフレームとページ表示部分にはそれぞれ8pxと6pxの角丸を適用し、Phone / Tablet固有の角丸は変更しません。
 
 背景は既存6種のlinear gradientに加え、Sea Glass Flow、Orchid Tide、Rosewater Ink、Apricot Lilacの4種を提供します。追加したFluid Gradient / Alcohol Ink風の背景は、淡いradial、conic、linear gradientをCSSで重ねて描画し、bitmap素材や外部リソースには依存しません。presetは色、角度、背景styleをまとめて適用し、ライブ表示とPNG書き出しで同じbackground descriptorを使います。
 
@@ -56,7 +73,7 @@ RendererのCSSはglobal tokens・reset、App、AppHeader、HeaderFeedback、View
 
 ## Renderer設定の永続化
 
-キャンバス設定は `localStorage` の `frameshot:settings:v4` へ保存します。v4を最優先し、v3データでは旧既定値と一致する `margin: 8` だけを32へ移行します。v2データではmarginを保持し、旧既定値と一致する `cornerRadius: 28` だけを8へ移行します。v2 / v3データは削除しないため、旧版へ戻した場合も従来の設定を読み込めます。
+スクリーンショット設定は `localStorage` の `frameshot:settings:v4` へ保存します。保存形式は変更せず、既存のv4データは値を強制移行せずに最優先で読み込みます。新しいプリセットと一致しない従来のスクリーンショットサイズやページ表示サイズはCustomとして扱います。新規利用時だけFull HDの1920 × 1080、ページ表示1856 × 958を既定値にします。v3データでは旧既定値と一致する `margin: 8` だけを32へ移行します。v2データではmarginを保持し、旧既定値と一致する `cornerRadius: 28` だけを8へ移行します。v2 / v3データは削除しないため、旧版へ戻した場合も従来の設定を読み込めます。
 
 設定パネルの開閉状態は保存対象に含めず、Renderer起動時は常に閉じた状態にします。
 
@@ -80,13 +97,13 @@ RendererのCSSはglobal tokens・reset、App、AppHeader、HeaderFeedback、View
 4. 必要に応じてスクロールバー、キャレット、アニメーションを一時的に抑制する
 5. `capturePage()` で最新のページ画像を取得する
 6. UUID tokenを発行し、ページPNGを `frameshot-export:` resource storeへ登録する
-7. 非永続・cache無効のexport sessionを使う、黒背景・最大構図サイズの非表示BrowserWindowで、操作UIと同じReact bundleを `#export` モードで読み込む
+7. 非永続・cache無効のexport sessionを使う、スクリーンショットサイズの非表示BrowserWindowで、操作UIと同じReact bundleを `#export` モードで読み込む
 8. `CompositionCanvas` のページ領域だけを一度取得可能なページPNGへ差し替える
 9. Webフォントとページ画像の描画完了後に、共有レイアウトのアートボード矩形を `capturePage()` へ渡して完成画像を取得する
 10. OSの表示倍率に差があれば、最終画像だけをアートボードの実寸へ正規化する
 11. 成功・失敗にかかわらずtoken、ページPNG、非表示ウィンドウを破棄する
 
-ページ画像には `no-store`、`nosniff`、`no-referrer`を適用します。Renderer bundleには厳格なCSPを適用し、ページPNGをOSの一時ファイルへ書き込みません。完成PNGは明示的な保存ダイアログまたはクリップボード操作だけでアプリ外へ出ます。保存ファイル名、完了・キャンセル結果、通知には最大構図サイズではなくアートボードの実寸を使用します。
+ページ画像には `no-store`、`nosniff`、`no-referrer`を適用します。Renderer bundleには厳格なCSPを適用し、ページPNGをOSの一時ファイルへ書き込みません。完成PNGは明示的な保存ダイアログまたはクリップボード操作だけでアプリ外へ出ます。保存ファイル名、完了・キャンセル結果、通知にはスクリーンショットサイズの上限値ではなくアートボードの実寸を使用します。
 
 書き出しは1件ずつ直列化します。出力画像と、倍率適用後のページ画像には、それぞれ8,294,400画素の上限を設けています。
 
@@ -128,7 +145,7 @@ Windows Authenticode署名は未設定です。正式リリース前に署名資
 
 - フルページ撮影と固定要素の処理
 - 複数URL・複数プリセットのバッチ出力
-- Safe area / Android端末枠の追加
+- Safe area、OS・ブラウザUI、機種固有端末フレームのエミュレーション
 - テキスト、ロゴ、バッジのレイヤー
 - WebP / JPEG出力
 - Playwrightスクリプトによる状態再現

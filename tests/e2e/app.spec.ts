@@ -1010,8 +1010,8 @@ async function startFixtureServer(): Promise<FixtureServer> {
       #animation-probe{position:fixed;left:80px;bottom:16px;width:1px;height:1px;
         animation:fixture-pulse 10s linear infinite alternate}
       @keyframes fixture-pulse{from{opacity:.25}to{opacity:.75}}
-      @media (min-width:1440px) and (max-width:1440px) and
-        (min-height:900px) and (max-height:900px){
+      @media (min-width:1856px) and (max-width:1856px) and
+        (min-height:958px) and (max-height:958px){
         #viewport-sentinel{background:#16a34a}
       }
       @media (min-width:768px) and (max-width:768px) and
@@ -1397,10 +1397,15 @@ async function expectPreviewArtboard(
       geometry.artboard.height - layout.artboard.height * previewScale,
     ),
   ).toBeLessThanOrEqual(2);
+  const artboardFillsCanvas =
+    layout.artboard.x === 0 &&
+    layout.artboard.y === 0 &&
+    layout.artboard.width === settings.outputWidth &&
+    layout.artboard.height === settings.outputHeight;
   expect(
-    geometry.artboard.width < geometry.canvas.width - 1 ||
-      geometry.artboard.height < geometry.canvas.height - 1,
-  ).toBe(true);
+    Math.abs(geometry.artboard.width - geometry.canvas.width) <= 1 &&
+      Math.abs(geometry.artboard.height - geometry.canvas.height) <= 1,
+  ).toBe(artboardFillsCanvas);
 
   const frameGaps = [
     geometry.frame.x - geometry.artboard.x,
@@ -1532,7 +1537,11 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
 
     const initialLayout = await cdp.evaluate<{
       actionDockExists: boolean;
+      accentToken: string;
+      appBackgroundToken: string;
       captionExists: boolean;
+      colorScheme: string;
+      controlLineToken: string;
       settingsExpanded: boolean;
       settingsFooterExists: boolean;
       settingsHidden: boolean;
@@ -1547,6 +1556,9 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       previewWidth: number;
       shellHeight: number;
       shellWidth: number;
+      saveTextColor: string;
+      textToken: string;
+      theme: string;
       workspaceY: number;
     }>(`
       (() => {
@@ -1559,6 +1571,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         const workspace = document.querySelector('.workspace');
         const preview = document.querySelector('.composition-preview-frame');
         const canvas = document.querySelector('.composition-canvas');
+        const save = document.querySelector('.toolbar-save-action');
         if (
           !(settingsButton instanceof HTMLButtonElement) ||
           !(settingsSlot instanceof HTMLElement) ||
@@ -1566,10 +1579,12 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           !(shell instanceof HTMLElement) ||
           !(workspace instanceof HTMLElement) ||
           !(preview instanceof HTMLElement) ||
-          !(canvas instanceof HTMLElement)
+          !(canvas instanceof HTMLElement) ||
+          !(save instanceof HTMLButtonElement)
         ) {
           throw new Error('The initial studio layout is incomplete.');
         }
+        const rootStyle = getComputedStyle(document.documentElement);
         const shellRect = shell.getBoundingClientRect();
         const headerRect = header.getBoundingClientRect();
         const workspaceRect = workspace.getBoundingClientRect();
@@ -1578,7 +1593,13 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         const legacyLabels = new Set(['撮影', '再撮影', '再合成']);
         return {
           actionDockExists: document.querySelector('.action-dock') !== null,
+          accentToken: rootStyle.getPropertyValue('--accent').trim(),
+          appBackgroundToken: rootStyle.getPropertyValue('--bg-0').trim(),
           captionExists: document.querySelector('.canvas-caption') !== null,
+          colorScheme: rootStyle.colorScheme,
+          controlLineToken: rootStyle
+            .getPropertyValue('--control-line')
+            .trim(),
           settingsExpanded: settingsButton.getAttribute('aria-expanded') === 'true',
           settingsFooterExists:
             document.querySelector('.settings-footer') !== null,
@@ -1603,6 +1624,9 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           previewWidth: previewRect.width,
           shellHeight: shellRect.height,
           shellWidth: shellRect.width,
+          saveTextColor: getComputedStyle(save).color,
+          textToken: rootStyle.getPropertyValue('--text').trim(),
+          theme: document.documentElement.dataset.theme ?? '',
           workspaceY: workspaceRect.y,
         };
       })()
@@ -1614,6 +1638,13 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     expect(initialLayout.settingsHidden).toBe(true);
     expect(initialLayout.liveSlot).toBe(true);
     expect(initialLayout.legacyActionsExist).toBe(false);
+    expect(initialLayout.theme).toBe('light');
+    expect(initialLayout.colorScheme).toBe('light');
+    expect(initialLayout.appBackgroundToken).toBe('#f3f5f9');
+    expect(initialLayout.textToken).toBe('#172033');
+    expect(initialLayout.accentToken).toBe('#6756d9');
+    expect(initialLayout.controlLineToken).toBe('#7f899b');
+    expect(initialLayout.saveTextColor).toBe('rgb(255, 255, 255)');
     expect(initialLayout.headerHeight).toBe(64);
     expect(initialLayout.headerOverflowing).toBe(false);
     expect(initialLayout.headerY + initialLayout.headerHeight).toBe(
@@ -1664,9 +1695,18 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         `getComputedStyle(document.querySelector('.composition-canvas')).backgroundColor`,
       ),
     ).toBe('rgb(0, 0, 0)');
-    expect(closedStudioGeometry.artboard.width).toBeLessThan(
-      closedStudioGeometry.canvas.width,
-    );
+    expect(
+      Math.abs(
+        closedStudioGeometry.artboard.width -
+          closedStudioGeometry.canvas.width,
+      ),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(
+        closedStudioGeometry.artboard.height -
+          closedStudioGeometry.canvas.height,
+      ),
+    ).toBeLessThanOrEqual(1);
     const previewScale = closedStudioGeometry.canvas.width / 1920;
     const artboardFrameGaps = [
       closedStudioGeometry.frame.x - closedStudioGeometry.artboard.x,
@@ -1789,11 +1829,11 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     const targetPage = targetCdp;
     const targetStateBeforeSettings: TargetFixtureState = {
       animationPlayState: 'running',
-      height: 900,
+      height: 958,
       sentinelColor: 'rgb(22, 163, 74)',
-      viewportText: '1440 × 900',
+      viewportText: '1856 × 958',
       visibilityState: 'visible',
-      width: 1440,
+      width: 1856,
     };
     await expect
       .poll(() => readTargetFixtureState(targetPage), { timeout: 5_000 })
@@ -1988,6 +2028,37 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         { timeout: 5_000 },
       )
       .toBe(true);
+    const mobileMenuGeometry = await cdp.evaluate<{
+      bottom: number;
+      maxHeight: string;
+      overflowY: string;
+      viewportHeight: number;
+      width: number;
+    }>(`
+      (() => {
+        const menu = document.querySelector(
+          '[data-device-mode="mobile"] .viewport-menu-list',
+        );
+        if (!(menu instanceof HTMLElement)) {
+          throw new Error('The mobile preset menu was not found.');
+        }
+        const rect = menu.getBoundingClientRect();
+        const style = getComputedStyle(menu);
+        return {
+          bottom: rect.bottom,
+          maxHeight: style.maxHeight,
+          overflowY: style.overflowY,
+          viewportHeight: innerHeight,
+          width: rect.width,
+        };
+      })()
+    `);
+    expect(mobileMenuGeometry.width).toBe(264);
+    expect(mobileMenuGeometry.maxHeight).not.toBe('none');
+    expect(mobileMenuGeometry.overflowY).toBe('auto');
+    expect(mobileMenuGeometry.bottom).toBeLessThanOrEqual(
+      mobileMenuGeometry.viewportHeight,
+    );
     await expect
       .poll(
         () =>
@@ -1996,7 +2067,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
               const slot = document.querySelector('.composition-page-slot');
               return slot instanceof HTMLElement &&
                 slot.classList.contains('is-suspended') &&
-                slot.textContent?.includes('表示サイズを選択中') === true &&
+                slot.textContent?.includes('サイズプリセットを選択中') === true &&
                 slot.textContent?.includes(
                   'ライブページは一時的に非表示です',
                 ) === true;
@@ -2110,7 +2181,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             document.querySelector(
               '.composition-page-slot',
-            )?.textContent?.includes('表示サイズを選択中') === true
+            )?.textContent?.includes('サイズプリセットを選択中') === true
           `),
         { timeout: 5_000 },
       )
@@ -2169,9 +2240,12 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           document.querySelectorAll(
             '[data-device-mode="mobile"] [role="menuitemradio"]',
           ),
-        ).find((button) => button.querySelector('b')?.textContent === 'Android');
+        ).find(
+          (button) =>
+            button.querySelector('b')?.textContent === 'Google Pixel 10',
+        );
         if (!(preset instanceof HTMLButtonElement)) {
-          throw new Error('The Android viewport preset was not found.');
+          throw new Error('The Google Pixel 10 preset was not found.');
         }
         preset.click();
       })()
@@ -2222,8 +2296,8 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
                 localStorage.getItem('frameshot:settings:v4'),
               );
               return settings.deviceMode === 'mobile' &&
-                settings.viewportWidth === 412 &&
-                settings.viewportHeight === 915;
+                settings.viewportWidth === 360 &&
+                settings.viewportHeight === 808;
             })()
           `),
         { timeout: 5_000 },
@@ -2242,9 +2316,9 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         { timeout: 5_000 },
       )
       .toEqual({
-        height: 915,
+        height: 808,
         visibilityState: 'visible',
-        width: 412,
+        width: 360,
       });
     expect(
       await targetPage.evaluate<string>(
@@ -2258,8 +2332,8 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       deviceMode: 'mobile',
       frameStyle: 'phone',
       showUrl: false,
-      viewportWidth: 412,
-      viewportHeight: 915,
+      viewportWidth: 360,
+      viewportHeight: 808,
     });
     for (const key of [
       'outputWidth',
@@ -2385,7 +2459,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
               )?.getAttribute('aria-expanded') === 'false' &&
               document.querySelector(
                 '.composition-page-slot',
-              )?.textContent?.includes('表示サイズを選択中') === true
+              )?.textContent?.includes('サイズプリセットを選択中') === true
           `),
         { timeout: 5_000 },
       )
@@ -2475,7 +2549,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
               'button[aria-controls="settings-panel"]',
             )?.getAttribute('aria-expanded') === 'true' &&
               document.activeElement?.getAttribute('aria-label') ===
-                'ページ表示領域 幅'
+                'ページ表示サイズ 幅'
           `),
         { timeout: 5_000 },
       )
@@ -2483,7 +2557,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     await cdp.evaluate(`
       (() => {
         const input = document.querySelector(
-          'input[aria-label="ページ表示領域 幅"]',
+          'input[aria-label="ページ表示サイズ 幅"]',
         );
         if (!(input instanceof HTMLInputElement)) {
           throw new Error('The custom viewport width input was not found.');
@@ -2538,7 +2612,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             document.querySelector(
               '.composition-page-slot',
-            )?.textContent?.includes('表示サイズを選択中') === true
+            )?.textContent?.includes('サイズプリセットを選択中') === true
           `),
         { timeout: 5_000 },
       )
@@ -2555,9 +2629,9 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           document.querySelectorAll(
             '[data-device-mode="desktop"] [role="menuitemradio"]',
           ),
-        ).find((button) => button.querySelector('b')?.textContent === 'Desktop');
+        ).find((button) => button.querySelector('b')?.textContent === 'WQHD');
         if (!(preset instanceof HTMLButtonElement)) {
-          throw new Error('The default desktop viewport preset was not found.');
+          throw new Error('The WQHD screenshot preset was not found.');
         }
         preset.click();
       })()
@@ -2571,9 +2645,66 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
                 localStorage.getItem('frameshot:settings:v4'),
               );
               return settings.deviceMode === 'desktop' &&
-                settings.viewportWidth === 1440 &&
-                settings.viewportHeight === 900 &&
+                settings.outputWidth === 2560 &&
+                settings.outputHeight === 1440 &&
+                settings.viewportWidth === 2496 &&
+                settings.viewportHeight === 1318 &&
                 settings.frameStyle === 'browser' &&
+                settings.margin === 32 &&
+                settings.captureScale === 1 &&
+                document.querySelector('.header-feedback')?.textContent?.includes(
+                  '取得品質を1×へ調整しました',
+                ) === true;
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      document.querySelector(
+        '[data-device-mode="desktop"] .viewport-menu-trigger',
+      )?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="desktop"] [role="menu"]',
+            ) !== null
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      (() => {
+        const preset = Array.from(
+          document.querySelectorAll(
+            '[data-device-mode="desktop"] [role="menuitemradio"]',
+          ),
+        ).find((button) => button.querySelector('b')?.textContent === 'Full HD');
+        if (!(preset instanceof HTMLButtonElement)) {
+          throw new Error('The Full HD screenshot preset was not found.');
+        }
+        preset.click();
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v4'),
+              );
+              return settings.deviceMode === 'desktop' &&
+                settings.outputWidth === 1920 &&
+                settings.outputHeight === 1080 &&
+                settings.viewportWidth === 1856 &&
+                settings.viewportHeight === 958 &&
+                settings.frameStyle === 'browser' &&
+                settings.margin === 32 &&
+                settings.captureScale === 1 &&
                 settings.showUrl === true;
             })()
           `),
@@ -2599,9 +2730,59 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       deviceMode: 'desktop',
       frameStyle: 'browser',
       showUrl: true,
-      viewportWidth: 1440,
-      viewportHeight: 900,
+      outputWidth: 1920,
+      outputHeight: 1080,
+      viewportWidth: 1856,
+      viewportHeight: 958,
+      margin: 32,
+      captureScale: 1,
     });
+
+    await cdp.evaluate(`
+      document.querySelector(
+        '[data-device-mode="desktop"] .viewport-menu-trigger',
+      )?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="desktop"] [role="menuitemradio"].custom',
+            ) !== null
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      (() => {
+        const custom = document.querySelector(
+          '[data-device-mode="desktop"] [role="menuitemradio"].custom',
+        );
+        if (!(custom instanceof HTMLButtonElement)) {
+          throw new Error('The custom screenshot action was not found.');
+        }
+        custom.click();
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              'button[aria-controls="settings-panel"]',
+            )?.getAttribute('aria-expanded') === 'true' &&
+              document.activeElement?.getAttribute('aria-label') ===
+                'スクリーンショットサイズ 幅'
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      document.querySelector('.settings-close-button')?.click()
+    `);
+    await waitForSettingsPanelToClose(cdp);
+
     const exportDestination = HEADLESS_E2E ? 'file' : 'clipboard';
 
     if (isWslHost()) {
@@ -2711,11 +2892,11 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           .toBe('running');
         expect(await readTargetFixtureState(targetPage)).toEqual({
           animationPlayState: 'running',
-          height: 900,
+          height: 958,
           sentinelColor: 'rgb(22, 163, 74)',
-          viewportText: '1440 × 900',
+          viewportText: '1856 × 958',
           visibilityState: 'visible',
-          width: 1440,
+          width: 1856,
         });
       }
 
@@ -2791,11 +2972,11 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         .toBe('running');
       expect(await readTargetFixtureState(targetPage)).toEqual({
         animationPlayState: 'running',
-        height: 900,
+        height: 958,
         sentinelColor: 'rgb(22, 163, 74)',
-        viewportText: '1440 × 900',
+        viewportText: '1856 × 958',
         visibilityState: 'visible',
-        width: 1440,
+        width: 1856,
       });
       logE2e(
         'The 1x, 2x, and iPad exports preserved the requested logical viewports and Tablet frame.',

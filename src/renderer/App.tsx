@@ -6,8 +6,8 @@ import {
 } from 'react';
 import {
   DEFAULT_SETTINGS,
-  applyCustomViewportMode,
-  applyViewportPreset,
+  applyCustomDeviceMode,
+  applyDevicePreset,
   cloneSettings,
   migrateV2Settings,
   migrateV3Settings,
@@ -15,11 +15,11 @@ import {
 import type {
   AppShortcut,
   CaptureSettings,
+  DevicePreset,
   DeviceMode,
   ExportDestination,
   NavigationState,
   UserPreferences,
-  ViewportPreset,
 } from '@shared/types';
 import { getHostname } from '@shared/url';
 import { validateCaptureSettings } from '@shared/validation';
@@ -27,7 +27,10 @@ import { AppHeader } from './components/AppHeader';
 import type { HeaderBusyAction } from './components/HeaderFeedback';
 import { LiveCanvas } from './components/LiveCanvas';
 import type { TargetSuspensionReason } from './components/CompositionCanvas';
-import { SettingsPanel } from './components/SettingsPanel';
+import {
+  SettingsPanel,
+  type SizeFocusTarget,
+} from './components/SettingsPanel';
 import { usePersistentState } from './hooks/usePersistentState';
 import { useTransientNotice } from './hooks/useTransientNotice';
 import './App.css';
@@ -112,7 +115,9 @@ export function App(): React.JSX.Element {
     paused: busy !== null,
   });
   const [floatingUi, setFloatingUi] = useState<FloatingUiState>(null);
-  const [focusViewportRequest, setFocusViewportRequest] = useState(0);
+  const [focusSizeRequest, setFocusSizeRequest] = useState(0);
+  const [focusSizeTarget, setFocusSizeTarget] =
+    useState<SizeFocusTarget>('page');
   const settingsPanelOpen = floatingUi?.kind === 'settings';
   const activeViewportMenu =
     floatingUi?.kind === 'viewport-menu'
@@ -240,24 +245,35 @@ export function App(): React.JSX.Element {
     [busy, navigation.url, settings, showError, showNotice],
   );
 
-  const selectViewportPreset = useCallback(
-    (preset: ViewportPreset) => {
-      setSettings((current) => applyViewportPreset(current, preset));
+  const selectDevicePreset = useCallback(
+    (preset: DevicePreset) => {
+      const next = applyDevicePreset(settings, preset);
+      setSettings(next);
+      const scaleAdjustment =
+        next.captureScale !== settings.captureScale
+          ? ' 取得品質を1×へ調整しました。'
+          : '';
       showNotice({
         kind: 'info',
-        message: `${preset.name} ${preset.width} × ${preset.height} を適用しました。`,
+        message:
+          preset.kind === 'desktop'
+            ? `${preset.name}: スクリーンショットサイズ ${preset.outputWidth} × ${preset.outputHeight}、ページ表示サイズ ${preset.viewportWidth} × ${preset.viewportHeight} を適用しました。${scaleAdjustment}`
+            : `${preset.name}: ページ表示サイズ ${preset.viewportWidth} × ${preset.viewportHeight} を適用しました。`,
       });
     },
-    [showNotice],
+    [settings, showNotice],
   );
 
-  const openCustomViewport = useCallback(
+  const openCustomSize = useCallback(
     (deviceMode: DeviceMode) => {
       setSettings((current) =>
-        applyCustomViewportMode(current, deviceMode),
+        applyCustomDeviceMode(current, deviceMode),
+      );
+      setFocusSizeTarget(
+        deviceMode === 'desktop' ? 'screenshot' : 'page',
       );
       setFloatingUi({ kind: 'settings' });
-      setFocusViewportRequest((current) => current + 1);
+      setFocusSizeRequest((current) => current + 1);
     },
     [],
   );
@@ -410,8 +426,8 @@ export function App(): React.JSX.Element {
         onReload={() => void window.frameShot.reload(false)}
         onNavigationRetry={() => void window.frameShot.reload(true)}
         onNoticeDismiss={dismissNotice}
-        onViewportPreset={selectViewportPreset}
-        onCustomViewport={openCustomViewport}
+        onDevicePreset={selectDevicePreset}
+        onCustomSize={openCustomSize}
         onViewportMenuOpen={openViewportMenu}
         onViewportMenuDismiss={dismissViewportMenu}
         onCopy={() => void exportImage('clipboard')}
@@ -448,7 +464,8 @@ export function App(): React.JSX.Element {
             settings={settings}
             currentHost={currentHost}
             certificateAllowed={certificateAllowed}
-            focusViewportRequest={focusViewportRequest}
+            focusSizeRequest={focusSizeRequest}
+            focusSizeTarget={focusSizeTarget}
             onSettingsChange={setSettings}
             onCertificateAllowed={(allowed) =>
               void setCertificateAllowed(allowed)

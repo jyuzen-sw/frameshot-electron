@@ -1,9 +1,9 @@
 import type { RefObject } from 'react';
 import type {
   CaptureSettings,
+  DevicePreset,
   DeviceMode,
   NavigationState,
-  ViewportPreset,
 } from '@shared/types';
 import type { TransientNotice } from '../hooks/useTransientNotice';
 import {
@@ -38,8 +38,8 @@ interface AppHeaderProps {
   onReload: () => void;
   onNavigationRetry: () => void;
   onNoticeDismiss: () => void;
-  onViewportPreset: (preset: ViewportPreset) => void;
-  onCustomViewport: (deviceMode: DeviceMode) => void;
+  onDevicePreset: (preset: DevicePreset) => void;
+  onCustomSize: (deviceMode: DeviceMode) => void;
   onViewportMenuOpen: (deviceMode: DeviceMode) => void;
   onViewportMenuDismiss: (deviceMode: DeviceMode) => void;
   onCopy: () => void;
@@ -64,8 +64,8 @@ export function AppHeader({
   onReload,
   onNavigationRetry,
   onNoticeDismiss,
-  onViewportPreset,
-  onCustomViewport,
+  onDevicePreset,
+  onCustomSize,
   onViewportMenuOpen,
   onViewportMenuDismiss,
   onCopy,
@@ -155,8 +155,8 @@ export function AppHeader({
       <ViewportMenu
         settings={settings}
         openMenu={openViewportMenu}
-        onViewportPreset={onViewportPreset}
-        onCustomViewport={onCustomViewport}
+        onDevicePreset={onDevicePreset}
+        onCustomSize={onCustomSize}
         onMenuOpen={onViewportMenuOpen}
         onMenuDismiss={onViewportMenuDismiss}
       />

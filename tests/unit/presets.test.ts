@@ -1,19 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SETTINGS,
+  DESKTOP_RESOLUTION_PRESETS,
+  DEVICE_PRESETS,
   GRADIENT_PRESETS,
-  VIEWPORT_PRESETS,
-  applyCustomViewportMode,
-  applyViewportPreset,
-  findViewportPreset,
+  MOBILE_DEVICE_PRESETS,
+  applyCustomDeviceMode,
+  applyDevicePreset,
+  devicePresetsFor,
+  findDevicePreset,
   migrateV2Settings,
   migrateV3Settings,
-  viewportPresetsFor,
 } from '@shared/presets';
 
 describe('built-in presets', () => {
-  it('uses a 32px frame margin and natural mint background by default', () => {
+  it('starts a new capture as a framed Full HD screenshot', () => {
     expect(DEFAULT_SETTINGS).toMatchObject({
+      outputWidth: 1920,
+      outputHeight: 1080,
+      viewportWidth: 1856,
+      viewportHeight: 958,
+      deviceMode: 'desktop',
+      frameStyle: 'browser',
       margin: 32,
       cornerRadius: 8,
       gradientFrom: '#e3f2e8',
@@ -157,65 +165,139 @@ describe('built-in presets', () => {
     },
   );
 
-  it('provides the approved desktop, phone, and iPad viewport lists', () => {
+  it('provides the approved desktop resolutions and their page display sizes', () => {
     expect(
-      viewportPresetsFor('desktop').map(({ frameStyle, width, height }) => [
-        frameStyle,
-        width,
-        height,
-      ]),
+      devicePresetsFor('desktop').map(
+        ({ name, outputWidth, outputHeight, viewportWidth, viewportHeight }) => [
+          name,
+          outputWidth,
+          outputHeight,
+          viewportWidth,
+          viewportHeight,
+        ],
+      ),
     ).toEqual([
-      ['browser', 1920, 1080],
-      ['browser', 1440, 900],
-      ['browser', 1366, 768],
-      ['browser', 1280, 800],
-      ['browser', 1280, 720],
-    ]);
-    expect(
-      viewportPresetsFor('mobile').map(({ frameStyle, width, height }) => [
-        frameStyle,
-        width,
-        height,
-      ]),
-    ).toEqual([
-      ['phone', 430, 932],
-      ['phone', 412, 915],
-      ['phone', 390, 844],
-      ['phone', 375, 812],
-      ['phone', 360, 800],
-      ['tablet', 768, 1024],
-      ['tablet', 1024, 1366],
+      ['Full HD', 1920, 1080, 1856, 958],
+      ['WQHD', 2560, 1440, 2496, 1318],
+      ['UWQHD', 3440, 1440, 3376, 1318],
+      ['4K UHD', 3840, 2160, 3776, 2038],
     ]);
   });
 
-  it('applies the device, viewport, and recommended frame fields', () => {
-    const preset = VIEWPORT_PRESETS.find(
-      (candidate) => candidate.id === 'mobile-android',
+  it('provides representative Android, iPhone, and iPad page display sizes', () => {
+    expect(
+      devicePresetsFor('mobile').map(
+        ({ group, name, frameStyle, viewportWidth, viewportHeight }) => [
+          group,
+          name,
+          frameStyle,
+          viewportWidth,
+          viewportHeight,
+        ],
+      ),
+    ).toEqual([
+      ['android', 'Google Pixel 10', 'phone', 360, 808],
+      ['android', 'Samsung Galaxy S24', 'phone', 360, 780],
+      ['iphone', 'iPhone 17', 'phone', 402, 874],
+      ['iphone', 'iPhone 17 Pro Max', 'phone', 440, 956],
+      ['ipad', 'iPad', 'tablet', 768, 1024],
+      ['ipad', 'iPad Pro 12.9″', 'tablet', 1024, 1366],
+    ]);
+  });
+
+  it('uses a unique identifier for every device preset', () => {
+    const ids = DEVICE_PRESETS.map((preset) => preset.id);
+
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('applies all fields that define a desktop resolution', () => {
+    const preset = DESKTOP_RESOLUTION_PRESETS.find(
+      (candidate) => candidate.id === 'desktop-wqhd',
     );
     expect(preset).toBeDefined();
-    const next = applyViewportPreset(DEFAULT_SETTINGS, preset!);
+    const previous = {
+      ...DEFAULT_SETTINGS,
+      outputWidth: 1080,
+      outputHeight: 1350,
+      viewportWidth: 402,
+      viewportHeight: 874,
+      deviceMode: 'mobile' as const,
+      frameStyle: 'phone' as const,
+      margin: 80,
+      showUrl: false,
+    };
+    const next = applyDevicePreset(previous, preset!);
 
     expect(next).toEqual({
-      ...DEFAULT_SETTINGS,
-      deviceMode: 'mobile',
-      frameStyle: 'phone',
-      viewportWidth: 412,
-      viewportHeight: 915,
-      showUrl: false,
+      ...previous,
+      outputWidth: 2560,
+      outputHeight: 1440,
+      viewportWidth: 2496,
+      viewportHeight: 1318,
+      deviceMode: 'desktop',
+      frameStyle: 'browser',
+      margin: 32,
+      captureScale: 1,
+      showUrl: true,
     });
-    expect(findViewportPreset(next)?.id).toBe('mobile-android');
-    expect(
-      findViewportPreset({ ...next, viewportWidth: 411 }),
-    ).toBeUndefined();
   });
 
-  it('applies a dedicated tablet frame to iPad presets', () => {
-    const preset = VIEWPORT_PRESETS.find(
+  it('keeps a 2x page capture for Full HD', () => {
+    const fullHd = DESKTOP_RESOLUTION_PRESETS.find(
+      (candidate) => candidate.id === 'desktop-full-hd',
+    );
+    expect(fullHd).toBeDefined();
+
+    expect(applyDevicePreset(DEFAULT_SETTINGS, fullHd!).captureScale).toBe(2);
+    expect(
+      applyDevicePreset({ ...DEFAULT_SETTINGS, captureScale: 1 }, fullHd!)
+        .captureScale,
+    ).toBe(1);
+  });
+
+  it.each(['desktop-wqhd', 'desktop-uwqhd', 'desktop-4k-uhd'])(
+    'uses a 1x page capture for %s when the previous setting was 2x',
+    (presetId) => {
+      const preset = DESKTOP_RESOLUTION_PRESETS.find(
+        (candidate) => candidate.id === presetId,
+      );
+      expect(preset).toBeDefined();
+
+      expect(applyDevicePreset(DEFAULT_SETTINGS, preset!).captureScale).toBe(1);
+    },
+  );
+
+  it('applies a mobile page display size without changing the screenshot', () => {
+    const preset = MOBILE_DEVICE_PRESETS.find(
+      (candidate) => candidate.id === 'iphone-17-pro-max',
+    );
+    expect(preset).toBeDefined();
+    const previous = {
+      ...DEFAULT_SETTINGS,
+      outputWidth: 1080,
+      outputHeight: 1350,
+      margin: 48,
+      captureScale: 2 as const,
+    };
+
+    expect(applyDevicePreset(previous, preset!)).toEqual({
+      ...previous,
+      deviceMode: 'mobile',
+      frameStyle: 'phone',
+      viewportWidth: 440,
+      viewportHeight: 956,
+      showUrl: false,
+    });
+  });
+
+  it('uses a tablet frame for iPad page display sizes', () => {
+    const preset = MOBILE_DEVICE_PRESETS.find(
       (candidate) => candidate.id === 'tablet-ipad-pro',
     );
     expect(preset).toBeDefined();
 
-    expect(applyViewportPreset(DEFAULT_SETTINGS, preset!)).toMatchObject({
+    expect(applyDevicePreset(DEFAULT_SETTINGS, preset!)).toMatchObject({
       deviceMode: 'mobile',
       frameStyle: 'tablet',
       viewportWidth: 1024,
@@ -224,27 +306,41 @@ describe('built-in presets', () => {
     });
   });
 
-  it('restores the category frame when selecting a preset or custom size', () => {
+  it('finds a preset only while its defining sizes still match', () => {
+    const fullHd = applyDevicePreset(
+      DEFAULT_SETTINGS,
+      DESKTOP_RESOLUTION_PRESETS[0],
+    );
+    const pixel = applyDevicePreset(
+      DEFAULT_SETTINGS,
+      MOBILE_DEVICE_PRESETS[0],
+    );
+
+    expect(findDevicePreset(fullHd)?.id).toBe('desktop-full-hd');
+    expect(
+      findDevicePreset({ ...fullHd, outputWidth: 1919 }),
+    ).toBeUndefined();
+    expect(
+      findDevicePreset({ ...fullHd, frameStyle: 'none' }),
+    ).toBeUndefined();
+    expect(findDevicePreset({ ...fullHd, margin: 48 })).toBeUndefined();
+    expect(findDevicePreset({ ...fullHd, showUrl: false })).toBeUndefined();
+    expect(findDevicePreset(pixel)?.id).toBe('android-pixel-10');
+    expect(
+      findDevicePreset({ ...pixel, frameStyle: 'tablet' }),
+    ).toBeUndefined();
+    expect(findDevicePreset({ ...pixel, showUrl: true })).toBeUndefined();
+  });
+
+  it('restores the category frame when choosing a custom size', () => {
     const phoneSettings = {
       ...DEFAULT_SETTINGS,
       deviceMode: 'mobile' as const,
       frameStyle: 'phone' as const,
       showUrl: false,
     };
-    const desktopPreset = VIEWPORT_PRESETS.find(
-      (candidate) => candidate.id === 'desktop-default',
-    );
-    expect(desktopPreset).toBeDefined();
-
     expect(
-      applyViewportPreset(phoneSettings, desktopPreset!),
-    ).toMatchObject({
-      deviceMode: 'desktop',
-      frameStyle: 'browser',
-      showUrl: true,
-    });
-    expect(
-      applyCustomViewportMode(
+      applyCustomDeviceMode(
         { ...DEFAULT_SETTINGS, frameStyle: 'none' },
         'mobile',
       ),
@@ -254,7 +350,7 @@ describe('built-in presets', () => {
       showUrl: false,
     });
     expect(
-      applyCustomViewportMode(phoneSettings, 'desktop'),
+      applyCustomDeviceMode(phoneSettings, 'desktop'),
     ).toMatchObject({
       deviceMode: 'desktop',
       frameStyle: 'browser',
