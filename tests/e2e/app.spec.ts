@@ -1113,6 +1113,27 @@ async function waitForMainText(cdp: CdpPage, text: string): Promise<void> {
   logE2e('Fixture transition was confirmed in the main UI.');
 }
 
+async function waitForSettingsPanelToClose(cdp: CdpPage): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        cdp.evaluate<boolean>(`
+          (() => {
+            const trigger = document.querySelector(
+              'button[aria-controls="settings-panel"]',
+            );
+            const panel = document.querySelector('.settings-panel-slot');
+            return trigger?.getAttribute('aria-expanded') === 'false' &&
+              panel instanceof HTMLElement &&
+              panel.getAttribute('aria-hidden') === 'true' &&
+              panel.inert;
+          })()
+        `),
+      { timeout: 5_000 },
+    )
+    .toBe(true);
+}
+
 interface TargetFixtureState {
   animationPlayState: string;
   height: number;
@@ -2417,6 +2438,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     await cdp.evaluate(`
       document.querySelector('.settings-close-button')?.click()
     `);
+    await waitForSettingsPanelToClose(cdp);
 
     await cdp.evaluate(`
       document.querySelector(
@@ -2493,6 +2515,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     await cdp.evaluate(`
       document.querySelector('.settings-close-button')?.click()
     `);
+    await waitForSettingsPanelToClose(cdp);
     await cdp.evaluate(`
       document.querySelector(
         '[data-device-mode="desktop"] .viewport-menu-trigger',
