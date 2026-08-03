@@ -139,7 +139,7 @@ Electron Fuseは次を強制します。
 
 公開配布ターゲットはWindows x64だけです。pull requestと `main` pushではLinux上でNode.js 26、`npm ci`、全severityのaudit、型検査、単体テストを行います。`main` pushではWindowsとLinux/Xvfbのパッケージ済みアプリを使い、WebGL2、インメモリ合成、非永続sessionの同じE2Eを検証します。
 
-release workflowは `validate`、`build-windows`、`publish` の順に実行します。`validate`は、tagが `^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$` に一致する署名付きannotated tagであり、tag objectと直接参照先commitのGitHub署名検証結果がともにVerifiedかつvalidであることを確認します。さらに、タグのversionと `package.json` のversionが一致し、対象commitが `main` のHEADであることを検証します。lightweight tag、tag chain、leading zero、prerelease、検証情報の欠損はfail closedで拒否します。
+release workflowは `validate`、`build-windows`、`publish` の順に実行します。`validate`は信頼済みの `main` をcheckoutして初回メタデータ検証コードを読み込み、タグcheckout内のverifierは実行しません。そのうえで、tagが `^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$` に一致する署名付きannotated tagであり、tag objectと直接参照先commitのGitHub署名検証結果がともにVerifiedかつvalidであることを確認します。さらに、タグのversionと `package.json` のversionが一致し、対象commitが `main` のHEADであることを検証します。lightweight tag、tag chain、leading zero、prerelease、検証情報の欠損はfail closedで拒否します。
 
 `build-windows`は検証済みcommit SHAをread-only tokenでcheckoutし、audit、型検査、単体テスト、package、Fuse検査、内側のpackage済みアプリのE2E、portable生成、portable wrapperの起動smoke testを行います。`publish`だけが `contents: write` を持ち、既存のReleaseとdraftを拒否してからportable exeをdraftへ添付します。タグ、署名、commit、`main` HEADがvalidate時から変わっていないことを公開直前に再検証し、成功したdraftだけを通常公開へ切り替えます。再検証に失敗したdraftは自動削除せず、明示的な確認対象として残します。公開assetは `FrameShot-N.N.N-Windows-x64-Portable.exe` の1件だけで、Squirrel成果物とLinux packageは含めません。
 

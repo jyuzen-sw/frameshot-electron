@@ -46,7 +46,7 @@ WebGL / WebGL2サイトの表示を優先するため、ChromiumのGPUブロッ�
 
 公開配布対象はWindows x64です。GitHub Releaseには単一ファイルの `FrameShot-N.N.N-Windows-x64-Portable.exe` だけを添付し、Squirrel成果物とLinux packageは公開しません。Electron ForgeによるWindows Squirrel成果物のローカル生成経路と、そのinstall/update/uninstall起動処理は維持します。パッケージはASARを使用し、Electron FuseでRunAsNode、`NODE_OPTIONS`、CLI inspect、ASAR外からのアプリ読込、`file://`の追加特権を無効化します。ASAR integrityとCookie暗号化も有効化します。
 
-release workflowは、厳密な `vN.N.N` 形式の署名付きannotated tagだけを処理します。tag objectと、そのタグが直接指すcommitの両方についてGitHubの署名検証結果がVerifiedかつvalidであること、タグのversionと `package.json` のversionが一致すること、対象commitが検証時と公開直前の両方で `main` のHEADであることを確認します。lightweight tagやtag chainは拒否し、検証に必要なGitHub APIの情報が欠けた場合も公開しません。ビルド処理はread-only権限で行い、GitHub Releaseへの書き込み権限は、再検証後にportable exeを公開するjobだけへ限定します。
+release workflowは初回メタデータ検証に使うコードを信頼済みの `main` から読み込み、タグcheckout内のverifierを実行しません。厳密な `vN.N.N` 形式の署名付きannotated tagだけを処理し、tag objectと、そのタグが直接指すcommitの両方についてGitHubの署名検証結果がVerifiedかつvalidであること、タグのversionと `package.json` のversionが一致すること、対象commitが検証時と公開直前の両方で `main` のHEADであることを確認します。lightweight tagやtag chainは拒否し、検証に必要なGitHub APIの情報が欠けた場合も公開しません。ビルド処理はread-only権限で行い、GitHub Releaseへの書き込み権限は、再検証後にportable exeを公開するjobだけへ限定します。
 
 `LoadBrowserProcessSpecificV8Snapshot` Fuseは無効です。検証したElectron 43配布物に専用の `browser_v8_context_snapshot.bin` がなく、有効化したビルドは起動時にfatal errorになったためです。Windows成果物へ専用snapshotを生成・同梱できるようになるまでは、操作UI・対象サイト・合成画面を含む全rendererでNode integrationを無効にし、context isolationとsandboxを維持します。
 

@@ -25,9 +25,10 @@ jobs:
       tag_object_sha: ${{ steps.metadata.outputs.tag_object_sha }}
       version: ${{ steps.metadata.outputs.version }}
     steps:
-      - name: Check out tagged source
+      - name: Check out trusted main source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: refs/heads/main
           fetch-depth: 1
           persist-credentials: false
       - name: Set up Node.js
