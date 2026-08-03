@@ -27,9 +27,11 @@ const isHeadlessE2e =
   app.isPackaged &&
   process.argv.includes('--frameshot-e2e-headless') &&
   process.env.FRAMESHOT_E2E_HEADLESS === '1';
-// Ozone headless keeps hidden BrowserWindows on a 1x1 surface.
+// Linux Ozone and Windows Chromium cannot size the embedded live surface while
+// the headless owner remains hidden.
 const needsVisibleHeadlessSurface =
-  isHeadlessE2e && process.platform === 'linux';
+  isHeadlessE2e &&
+  (process.platform === 'linux' || process.platform === 'win32');
 
 app.setName('FrameShot');
 if (process.platform === 'win32') {

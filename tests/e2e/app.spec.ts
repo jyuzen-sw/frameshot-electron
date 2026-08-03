@@ -880,9 +880,33 @@ function waitForChildProcessToStop(
 }
 
 async function stopPackagedApp(app: RunningApp): Promise<void> {
+  if (!childProcessStopped(app.child)) {
+    logE2e('Requesting a graceful Electron shutdown through the main window.');
+    try {
+      await app.cdp.evaluate(`
+        setTimeout(() => window.close(), 0);
+        true
+      `);
+    } catch (error) {
+      logE2e(
+        `Could not request a graceful Electron shutdown: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    if (!(await waitForChildProcessToStop(app.child, 5_000))) {
+      logE2e('Graceful Electron shutdown timed out; using signal fallback.');
+      app.cdp.close();
+      await stopChildProcess(app.child);
+      await app.closed;
+      return;
+    }
+    logE2e(`Electron process stopped (${childProcessResult(app.child)}).`);
+  }
+
   logE2e('Closing the page DevTools connection.');
   app.cdp.close();
-  await stopChildProcess(app.child);
   await app.closed;
 }
 
@@ -907,7 +931,12 @@ async function cleanupScenario(
     cleanupErrors.push(error);
   }
   try {
-    fs.rmSync(tempDirectory, { recursive: true, force: true });
+    fs.rmSync(tempDirectory, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100,
+    });
   } catch (error) {
     cleanupErrors.push(error);
   }
@@ -1385,41 +1414,60 @@ function expectRectangleToStayFixed(
   }
 }
 
+const STUDIO_COMPOSITION_TOLERANCES = [
+  ['shell', 1, 'canvas-shell'],
+  ['preview', 1, 'composition-preview-frame'],
+  ['artboard', 2, 'composition-artboard'],
+  ['canvas', 2, 'composition-canvas'],
+  ['frame', 2, 'composition-frame'],
+  ['pageSlot', 1, 'composition-page-slot'],
+] as const satisfies ReadonlyArray<
+  readonly [keyof StudioGeometry, number, string]
+>;
+
+function studioCompositionStayedFixed(
+  before: StudioGeometry,
+  after: StudioGeometry,
+): boolean {
+  return STUDIO_COMPOSITION_TOLERANCES.every(
+    ([property, tolerance]) =>
+      (['x', 'y', 'width', 'height'] as const).every(
+        (rectangleProperty) =>
+          Math.abs(
+            after[property][rectangleProperty] -
+              before[property][rectangleProperty],
+          ) <= tolerance,
+      ),
+  );
+}
+
 function expectStudioCompositionToStayFixed(
   before: StudioGeometry,
   after: StudioGeometry,
 ): void {
-  expectRectangleToStayFixed(before.shell, after.shell, 1, 'canvas-shell');
-  expectRectangleToStayFixed(
-    before.preview,
-    after.preview,
-    1,
-    'composition-preview-frame',
-  );
-  expectRectangleToStayFixed(
-    before.artboard,
-    after.artboard,
-    2,
-    'composition-artboard',
-  );
-  expectRectangleToStayFixed(
-    before.canvas,
-    after.canvas,
-    2,
-    'composition-canvas',
-  );
-  expectRectangleToStayFixed(
-    before.frame,
-    after.frame,
-    2,
-    'composition-frame',
-  );
-  expectRectangleToStayFixed(
-    before.pageSlot,
-    after.pageSlot,
-    1,
-    'composition-page-slot',
-  );
+  for (const [property, tolerance, label] of STUDIO_COMPOSITION_TOLERANCES) {
+    expectRectangleToStayFixed(
+      before[property],
+      after[property],
+      tolerance,
+      label,
+    );
+  }
+}
+
+async function waitForStudioCompositionToStayFixed(
+  cdp: CdpPage,
+  before: StudioGeometry,
+): Promise<StudioGeometry> {
+  let after = await readStudioGeometry(cdp);
+  await expect
+    .poll(async () => {
+      after = await readStudioGeometry(cdp);
+      return studioCompositionStayedFixed(before, after);
+    }, { timeout: 5_000 })
+    .toBe(true);
+  expectStudioCompositionToStayFixed(before, after);
+  return after;
 }
 
 async function readTargetFixtureState(cdp: CdpPage): Promise<TargetFixtureState> {
@@ -1569,6 +1617,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       Math.abs(initialLayout.canvasHeight - initialLayout.previewHeight),
     ).toBeLessThanOrEqual(2);
 
+    const initialStudioGeometry = await readStudioGeometry(cdp);
     const originalViewport = await cdp.evaluate<{
       height: number;
       width: number;
@@ -1584,7 +1633,11 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         viewportWidth: originalViewport.width,
       });
 
-    const closedStudioGeometry = await readStudioGeometry(cdp);
+    const closedStudioGeometry =
+      await waitForStudioCompositionToStayFixed(
+        cdp,
+        initialStudioGeometry,
+      );
     expect(
       await cdp.evaluate<string>(
         `getComputedStyle(document.querySelector('.composition-canvas')).backgroundColor`,
@@ -1638,11 +1691,11 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         { timeout: 5_000 },
       )
       .toBe(true);
-    const openStudioGeometry = await readStudioGeometry(cdp);
-    expectStudioCompositionToStayFixed(
-      closedStudioGeometry,
-      openStudioGeometry,
-    );
+    const openStudioGeometry =
+      await waitForStudioCompositionToStayFixed(
+        cdp,
+        closedStudioGeometry,
+      );
     expect(openStudioGeometry.panel.x).toBeGreaterThanOrEqual(
       openStudioGeometry.workspace.x,
     );
@@ -1702,9 +1755,9 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         { timeout: 5_000 },
       )
       .toBe(true);
-    expectStudioCompositionToStayFixed(
+    await waitForStudioCompositionToStayFixed(
+      cdp,
       closedStudioGeometry,
-      await readStudioGeometry(cdp),
     );
 
     await navigateFromMainUi(cdp, fixture.url);
@@ -1713,17 +1766,17 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       await waitForTargetPageEndpoint(app.browserEndpoint, fixture.url),
     );
     const targetPage = targetCdp;
-    const targetStateBeforeSettings = await readTargetFixtureState(
-      targetPage,
-    );
-    expect(targetStateBeforeSettings).toEqual({
+    const targetStateBeforeSettings: TargetFixtureState = {
       animationPlayState: 'running',
       height: 900,
       sentinelColor: 'rgb(22, 163, 74)',
       viewportText: '1440 × 900',
       visibilityState: 'visible',
       width: 1440,
-    });
+    };
+    await expect
+      .poll(() => readTargetFixtureState(targetPage), { timeout: 5_000 })
+      .toEqual(targetStateBeforeSettings);
     logE2e('WebGL2 fixture is ready.');
 
     const retryablePath = '/retryable';
@@ -1824,9 +1877,9 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         { timeout: 5_000 },
       )
       .toBe(true);
-    expectStudioCompositionToStayFixed(
+    await waitForStudioCompositionToStayFixed(
+      cdp,
       loadedStudioGeometry,
-      await readStudioGeometry(cdp),
     );
     await cdp.evaluate(`
       document.querySelector('.settings-close-button')?.click()
@@ -1851,9 +1904,9 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     await expect
       .poll(() => readTargetFixtureState(targetPage), { timeout: 5_000 })
       .toEqual(targetStateBeforeSettings);
-    expectStudioCompositionToStayFixed(
+    await waitForStudioCompositionToStayFixed(
+      cdp,
       loadedStudioGeometry,
-      await readStudioGeometry(cdp),
     );
 
     const addressCenterDelta = await cdp.evaluate<{ x: number; y: number }>(`
