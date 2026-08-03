@@ -8,9 +8,9 @@ FrameShotは、操作UI、対象ページ、出力処理を別々のWebContents�
 
 Reactで構築され、URL、Desktop解像度とモバイル機種のプリセット、スクリーンショット設定、ライブキャンバスを担当します。ファイルシステムやElectron APIには直接アクセスせず、preloadが `contextBridge` で公開する限定的な `window.frameShot` APIだけを使用します。
 
-DesktopのヘッダーリストはFull HD、WQHD、UWQHD、4K UHDの画面解像度を選び、スクリーンショットサイズ、ページ表示サイズ、Browserフレーム、URL表示、余白32pxをまとめて変更します。PhoneのヘッダーリストはAndroid、iPhone、iPadのセクションに分かれ、機種に対応するページ表示サイズとPhone / Tabletフレームを変更しますが、スクリーンショットサイズと余白は維持します。DesktopのCustomはスクリーンショットサイズの幅、PhoneのCustomはページ表示サイズの幅へフォーカスします。Appは設定パネル、Desktop / Phoneメニュー、未表示を単一の排他状態として管理します。Escapeでメニューを閉じた場合だけトリガーへフォーカスを戻し、外側クリックでは現在のフォーカスを強制移動しません。フローティングUIを開閉してもworkspaceのレイアウト、キャンバス、ページ表示サイズの座標と寸法を変えません。
+DesktopのヘッダーリストはFull HD、WQHD、UWQHD、4K UHDの画面解像度を選び、スクリーンショットサイズ、ページ表示サイズ、Browserフレーム、URL表示、余白32pxをまとめて変更します。PhoneのヘッダーリストはAndroid、iPhone、iPadのセクションに分かれ、機種に対応するページ表示サイズとPhone / Tabletフレームを変更します。モバイル時はスクリーンショットサイズをページ、フレーム、余白から2×で再計算し、取得品質も2×へ固定します。DesktopのCustomはスクリーンショットサイズの幅、PhoneのCustomはページ表示サイズの幅へフォーカスし、DesktopからPhoneのCustomへ移る場合は390 × 844を開始値にします。Appは設定パネル、Desktop / Phoneメニュー、未表示を単一の排他状態として管理します。Escapeでメニューを閉じた場合だけトリガーへフォーカスを戻し、外側クリックでは現在のフォーカスを強制移動しません。フローティングUIを開閉してもworkspaceのレイアウト、キャンバス、ページ表示サイズの座標と寸法を変えません。
 
-共有プリセットは、完成サイズと余白を持つ `DesktopResolutionPreset` と、機種グループとページ表示サイズを持つ `MobileDevicePreset` の判別可能なunionです。適用後も永続化する `CaptureSettings` のshapeは変えず、プリセットは既存フィールドへ値を展開します。
+共有プリセットは、完成サイズと余白を持つ `DesktopResolutionPreset` と、機種グループとページ表示サイズを持つ `MobileDevicePreset` の判別可能なunionです。`CaptureSettings.phoneFrameVariant` は最後に選択したAndroid / iPhone外観を保持し、iPadやCustomを選んでも上書きしません。
 
 64pxのAppHeaderはブランド、ページ操作、プリセット、書き出し操作をまとめます。ブランド領域は通常の製品名と、処理中、完了、エラーを排他的に表示するHeaderFeedbackを兼ねます。通知はWebContentsViewのbounds外に置くため、対象ページを隠したり状態を失わせたりせずに表示できます。対象ページの読み込みエラーは成功したmain-frame遷移まで保持し、ヘッダーからキャッシュを無視して再試行できます。Electronのネイティブアプリケーションメニューは無効化します。保存、URLフォーカス、再読み込みのショートカットは、Main Processが対象ページ側の入力も捕捉して操作UIへ中継するため、どちらにフォーカスがあっても動作します。
 
@@ -42,7 +42,7 @@ DesktopのヘッダーリストはFull HD、WQHD、UWQHD、4K UHDの画面解像
 
 Rendererは `CompositionCanvas` を実際の出力寸法で構築し、CSS transformだけでウィンドウ内へ縮小表示します。フレーム内の画面領域を `getBoundingClientRect()` で測定し、その座標をMain Processへ送ります。Main Processは同じ位置・大きさにネイティブの `WebContentsView` を配置します。
 
-これにより、対象ページは本物のChromiumページとしてクリック、スクロール、入力できます。ブラウザバーやスマホベゼルはRenderer側の装飾です。
+これにより、対象ページは本物のChromiumページとしてクリック、スクロール、入力できます。ブラウザバー、スマホベゼル、側面ボタンはRenderer側の装飾です。ネイティブビューはDOMより前面にあるため、ページと交差するパンチホールとDynamic Islandはライブ表示へ重ねず、書き出しRendererだけでページ画像の上へ合成します。
 
 ネイティブの `WebContentsView` はRendererのDOMより前面に描画されるため、設定パネルまたはDesktop / Phoneメニューの表示中は対象ビューへ `visible: false` を送り、ライブページを一時的に隠します。DOM側には「設定を編集中」または「サイズプリセットを選択中」と理由を表示します。閉じると同じ `WebContentsView` を同じ座標へ再表示し、reloadや再生成を行わないため、URL、スクロール、入力、sessionの状態を維持します。
 
@@ -61,19 +61,30 @@ Rendererは `CompositionCanvas` を実際の出力寸法で構築し、CSS trans
 
 WQHD、UWQHD、4K UHDは、2×取得がページ画像の画素上限を超える場合に1×へ変更し、Rendererから通知します。Full HDは選択中の1× / 2×を維持します。Desktopプリセットとレイアウト計算は同じBrowser bar 58pxの定数を参照し、完成サイズとページ表示サイズの計算がずれないようにします。
 
-モバイル機種プリセットは、Google Pixel 10（360 × 808）、Samsung Galaxy S24（360 × 780）、iPhone 17（402 × 874）、iPhone 17 Pro Max（440 × 956）、iPad（768 × 1024）、iPad Pro 12.9″（1024 × 1366）のページ表示サイズを持ちます。これらはサイズ指定であり、UA、DPR、safe area、OSやモバイルブラウザのUI、機種固有フレームの実機エミュレーションは行いません。
+モバイルでは、選択中のフレームの論理外周をページ表示サイズへ加え、各辺の余白を含めて `出力幅 = (ページ幅 + 左右外周) × 2 + 余白 × 2`、`出力高さ = (ページ高さ + 上下外周) × 2 + 余白 × 2` で完成サイズを決めます。Phoneの外周は各辺14px、Tabletは各辺28pxです。既定の余白32pxでは次の値になります。
 
-スクリーンショットキャンバスの縦横比に合わせて余った領域はライブプレビューで構図を確認するためだけに表示し、PNGには含めません。Desktopのフレームとページ表示部分にはそれぞれ8pxと6pxの角丸を適用し、Phone / Tablet固有の角丸は変更しません。
+| セクション | モデル | ページ表示サイズ | 自動出力サイズ |
+|---|---|---:|---:|
+| Android | Google Pixel 10 | 360 × 808 | 840 × 1736 |
+| Android | Samsung Galaxy S24 | 360 × 780 | 840 × 1680 |
+| iPhone | iPhone 17 | 402 × 874 | 924 × 1868 |
+| iPhone | iPhone 17 Pro Max | 440 × 956 | 1000 × 2032 |
+| iPad | iPad | 768 × 1024 | 1712 × 2224 |
+| iPad | iPad Pro 12.9″ | 1024 × 1366 | 2224 × 2908 |
+
+Android Phoneは外枠40px・画面32pxの角丸、中央の10pxパンチホール、右側の音量・電源ボタンを持ちます。iPhone Phoneは外枠55px・画面47pxの角丸、124 × 32pxのDynamic Island、左側のアクション・音量ボタンと右側の電源ボタンを持ちます。Tabletの既存デザインは変更しません。これらは代表的な外観であり、UA、safe area、OSやモバイルブラウザのUI、モデル固有の細部はエミュレーションしません。
+
+Desktopでスクリーンショットキャンバスの縦横比に合わせて余った領域は、ライブプレビューで構図を確認するためだけに表示し、PNGには含めません。モバイルの自動出力ではフレーム外周と余白がキャンバスへ一致するため、アートボードが完成サイズ全体になります。Desktopのフレームとページ表示部分にはそれぞれ8pxと6pxの角丸を適用します。
 
 背景は既存6種のlinear gradientに加え、Sea Glass Flow、Orchid Tide、Rosewater Ink、Apricot Lilacの4種を提供します。追加したFluid Gradient / Alcohol Ink風の背景は、淡いradial、conic、linear gradientをCSSで重ねて描画し、bitmap素材や外部リソースには依存しません。presetは色、角度、背景styleをまとめて適用し、ライブ表示とPNG書き出しで同じbackground descriptorを使います。
 
-違いはページ領域だけです。ライブ表示ではその位置に `WebContentsView` を重ね、非表示の書き出しRendererでは直前に取得したページPNGを `<img>` として配置します。Browserの装飾は共通の58px bar内部とページ領域に交差しない外周だけへ置き、native viewと画像で重なり順が変わらないようにします。ライブ表示用と出力用で別々のマークアップやCSSを保守しないため、表示差分が生じにくい構成です。
+違いはページ領域だけです。ライブ表示ではその位置に `WebContentsView` を重ね、非表示の書き出しRendererでは直前に取得したページPNGを `<img>` として配置します。Browserの装飾と端末の外枠・側面ボタンはページ領域に交差しない位置へ共通描画します。ページ内へ重なるPhoneのパンチホールとDynamic Islandだけは、ネイティブビューを覆えない制約から書き出し時だけ描画します。それ以外はライブ表示用と出力用で同じマークアップとCSSを使います。
 
 RendererのCSSはglobal tokens・reset、App、AppHeader、HeaderFeedback、ViewportMenu、LiveCanvas、CompositionCanvas、SettingsPanel、共有背景効果へ分割し、各コンポーネントが所有するplain CSSを直接importします。意味のあるclass名はE2Eの観測点として維持します。
 
 ## Renderer設定の永続化
 
-スクリーンショット設定は `localStorage` の `frameshot:settings:v4` へ保存します。保存形式は変更せず、既存のv4データは値を強制移行せずに最優先で読み込みます。新しいプリセットと一致しない従来のスクリーンショットサイズやページ表示サイズはCustomとして扱います。新規利用時だけFull HDの1920 × 1080、ページ表示1856 × 958を既定値にします。v3データでは旧既定値と一致する `margin: 8` だけを32へ移行します。v2データではmarginを保持し、旧既定値と一致する `cornerRadius: 28` だけを8へ移行します。v2 / v3データは削除しないため、旧版へ戻した場合も従来の設定を読み込めます。
+スクリーンショット設定は `localStorage` の `frameshot:settings:v5` へ保存します。v5は `phoneFrameVariant` を追加し、最後に選んだAndroid / iPhone外観を再起動後も復元します。v4の既知のAndroid / iPhoneページ表示サイズから外観を推定し、未知のCustomとiPadはiPhoneへフォールバックします。v4のモバイル設定は出力サイズと取得品質を2×自動計算へ正規化し、Desktop設定は維持します。新規利用時はFull HDの1920 × 1080、ページ表示1856 × 958を既定値にします。v3データでは旧既定値と一致する `margin: 8` だけを32へ移行します。v2データではmarginを保持し、旧既定値と一致する `cornerRadius: 28` だけを8へ移行します。v2 / v3 / v4データは削除しないため、旧版へ戻した場合も従来の設定を読み込めます。
 
 設定パネルの開閉状態は保存対象に含めず、Renderer起動時は常に閉じた状態にします。
 
@@ -149,7 +160,7 @@ tagとcommitのGit署名はソースの来歴をGitHub上で検証しますが�
 
 - フルページ撮影と固定要素の処理
 - 複数URL・複数プリセットのバッチ出力
-- Safe area、OS・ブラウザUI、機種固有端末フレームのエミュレーション
+- Safe area、OS・ブラウザUI、モデル固有端末フレームの詳細なエミュレーション
 - テキスト、ロゴ、バッジのレイヤー
 - WebP / JPEG出力
 - Playwrightスクリプトによる状態再現
