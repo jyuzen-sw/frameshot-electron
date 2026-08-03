@@ -1,18 +1,127 @@
 import type {
   CaptureSettings,
+  DesktopResolutionPreset,
+  DevicePreset,
   DeviceMode,
   GradientPreset,
-  ViewportPreset,
+  MobileDevicePreset,
 } from './types';
+import { BROWSER_BAR_HEIGHT } from './layout';
+import { MAX_CAPTURE_PIXELS } from './validation';
+
+export const DESKTOP_PRESET_MARGIN = 32;
+
+function desktopResolutionPreset(
+  id: string,
+  name: string,
+  outputWidth: number,
+  outputHeight: number,
+): DesktopResolutionPreset {
+  return {
+    kind: 'desktop',
+    id,
+    name,
+    deviceMode: 'desktop',
+    frameStyle: 'browser',
+    outputWidth,
+    outputHeight,
+    viewportWidth: outputWidth - DESKTOP_PRESET_MARGIN * 2,
+    viewportHeight:
+      outputHeight - DESKTOP_PRESET_MARGIN * 2 - BROWSER_BAR_HEIGHT,
+    margin: DESKTOP_PRESET_MARGIN,
+  };
+}
+
+const FULL_HD_PRESET = desktopResolutionPreset(
+  'desktop-full-hd',
+  'Full HD',
+  1920,
+  1080,
+);
+
+export const DESKTOP_RESOLUTION_PRESETS: readonly DesktopResolutionPreset[] = [
+  FULL_HD_PRESET,
+  desktopResolutionPreset('desktop-wqhd', 'WQHD', 2560, 1440),
+  desktopResolutionPreset('desktop-uwqhd', 'UWQHD', 3440, 1440),
+  desktopResolutionPreset('desktop-4k-uhd', '4K UHD', 3840, 2160),
+];
+
+export const MOBILE_DEVICE_PRESETS: readonly MobileDevicePreset[] = [
+  {
+    kind: 'mobile',
+    id: 'android-pixel-10',
+    name: 'Google Pixel 10',
+    group: 'android',
+    deviceMode: 'mobile',
+    frameStyle: 'phone',
+    viewportWidth: 360,
+    viewportHeight: 808,
+  },
+  {
+    kind: 'mobile',
+    id: 'android-galaxy-s24',
+    name: 'Samsung Galaxy S24',
+    group: 'android',
+    deviceMode: 'mobile',
+    frameStyle: 'phone',
+    viewportWidth: 360,
+    viewportHeight: 780,
+  },
+  {
+    kind: 'mobile',
+    id: 'iphone-17',
+    name: 'iPhone 17',
+    group: 'iphone',
+    deviceMode: 'mobile',
+    frameStyle: 'phone',
+    viewportWidth: 402,
+    viewportHeight: 874,
+  },
+  {
+    kind: 'mobile',
+    id: 'iphone-17-pro-max',
+    name: 'iPhone 17 Pro Max',
+    group: 'iphone',
+    deviceMode: 'mobile',
+    frameStyle: 'phone',
+    viewportWidth: 440,
+    viewportHeight: 956,
+  },
+  {
+    kind: 'mobile',
+    id: 'tablet-ipad',
+    name: 'iPad',
+    group: 'ipad',
+    deviceMode: 'mobile',
+    frameStyle: 'tablet',
+    viewportWidth: 768,
+    viewportHeight: 1024,
+  },
+  {
+    kind: 'mobile',
+    id: 'tablet-ipad-pro',
+    name: 'iPad Pro 12.9″',
+    group: 'ipad',
+    deviceMode: 'mobile',
+    frameStyle: 'tablet',
+    viewportWidth: 1024,
+    viewportHeight: 1366,
+  },
+];
+
+export const DEVICE_PRESETS: readonly DevicePreset[] = [
+  ...DESKTOP_RESOLUTION_PRESETS,
+  ...MOBILE_DEVICE_PRESETS,
+];
 
 export const DEFAULT_SETTINGS: CaptureSettings = {
-  outputWidth: 1920,
-  outputHeight: 1080,
-  viewportWidth: 1440,
-  viewportHeight: 900,
+  outputWidth: FULL_HD_PRESET.outputWidth,
+  outputHeight: FULL_HD_PRESET.outputHeight,
+  viewportWidth: FULL_HD_PRESET.viewportWidth,
+  viewportHeight: FULL_HD_PRESET.viewportHeight,
   deviceMode: 'desktop',
   frameStyle: 'browser',
-  margin: 32,
+  margin: FULL_HD_PRESET.margin,
   cornerRadius: 8,
   shadow: 62,
   gradientFrom: '#e3f2e8',
@@ -25,105 +134,6 @@ export const DEFAULT_SETTINGS: CaptureSettings = {
   pauseAnimations: false,
   showUrl: true,
 };
-
-export const VIEWPORT_PRESETS: readonly ViewportPreset[] = [
-  {
-    id: 'desktop-full-hd',
-    name: 'Full HD',
-    deviceMode: 'desktop',
-    frameStyle: 'browser',
-    width: 1920,
-    height: 1080,
-  },
-  {
-    id: 'desktop-default',
-    name: 'Desktop',
-    deviceMode: 'desktop',
-    frameStyle: 'browser',
-    width: 1440,
-    height: 900,
-  },
-  {
-    id: 'desktop-laptop',
-    name: 'Laptop',
-    deviceMode: 'desktop',
-    frameStyle: 'browser',
-    width: 1366,
-    height: 768,
-  },
-  {
-    id: 'desktop-compact',
-    name: 'Compact',
-    deviceMode: 'desktop',
-    frameStyle: 'browser',
-    width: 1280,
-    height: 800,
-  },
-  {
-    id: 'desktop-hd',
-    name: 'HD',
-    deviceMode: 'desktop',
-    frameStyle: 'browser',
-    width: 1280,
-    height: 720,
-  },
-  {
-    id: 'mobile-large',
-    name: 'Large',
-    deviceMode: 'mobile',
-    frameStyle: 'phone',
-    width: 430,
-    height: 932,
-  },
-  {
-    id: 'mobile-android',
-    name: 'Android',
-    deviceMode: 'mobile',
-    frameStyle: 'phone',
-    width: 412,
-    height: 915,
-  },
-  {
-    id: 'mobile-default',
-    name: 'Phone',
-    deviceMode: 'mobile',
-    frameStyle: 'phone',
-    width: 390,
-    height: 844,
-  },
-  {
-    id: 'mobile-compact',
-    name: 'Compact',
-    deviceMode: 'mobile',
-    frameStyle: 'phone',
-    width: 375,
-    height: 812,
-  },
-  {
-    id: 'mobile-small',
-    name: 'Small',
-    deviceMode: 'mobile',
-    frameStyle: 'phone',
-    width: 360,
-    height: 800,
-  },
-  {
-    id: 'tablet-ipad',
-    name: 'iPad',
-    deviceMode: 'mobile',
-    frameStyle: 'tablet',
-    width: 768,
-    height: 1024,
-  },
-  {
-    id: 'tablet-ipad-pro',
-    name: 'iPad Pro 12.9″',
-    deviceMode: 'mobile',
-    frameStyle: 'tablet',
-    width: 1024,
-    height: 1366,
-  },
-];
 
 export const GRADIENT_PRESETS: GradientPreset[] = [
   {
@@ -231,41 +241,97 @@ export function migrateV3Settings(
   };
 }
 
-export function viewportPresetsFor(
+export function devicePresetsFor(
+  deviceMode: 'desktop',
+): readonly DesktopResolutionPreset[];
+export function devicePresetsFor(
+  deviceMode: 'mobile',
+): readonly MobileDevicePreset[];
+export function devicePresetsFor(
   deviceMode: DeviceMode,
-): readonly ViewportPreset[] {
-  return VIEWPORT_PRESETS.filter((preset) => preset.deviceMode === deviceMode);
+): readonly DevicePreset[];
+export function devicePresetsFor(
+  deviceMode: DeviceMode,
+): readonly DevicePreset[] {
+  return deviceMode === 'desktop'
+    ? DESKTOP_RESOLUTION_PRESETS
+    : MOBILE_DEVICE_PRESETS;
 }
 
-export function findViewportPreset(
+export function findDevicePreset(
   settings: Pick<
     CaptureSettings,
-    'deviceMode' | 'viewportWidth' | 'viewportHeight'
+    | 'deviceMode'
+    | 'frameStyle'
+    | 'margin'
+    | 'outputWidth'
+    | 'outputHeight'
+    | 'viewportWidth'
+    | 'viewportHeight'
+    | 'showUrl'
   >,
-): ViewportPreset | undefined {
-  return VIEWPORT_PRESETS.find(
+): DevicePreset | undefined {
+  if (settings.deviceMode === 'desktop') {
+    return DESKTOP_RESOLUTION_PRESETS.find(
+      (preset) =>
+        preset.frameStyle === settings.frameStyle &&
+        preset.margin === settings.margin &&
+        preset.outputWidth === settings.outputWidth &&
+        preset.outputHeight === settings.outputHeight &&
+        preset.viewportWidth === settings.viewportWidth &&
+        preset.viewportHeight === settings.viewportHeight &&
+        settings.showUrl,
+    );
+  }
+
+  return MOBILE_DEVICE_PRESETS.find(
     (preset) =>
-      preset.deviceMode === settings.deviceMode &&
-      preset.width === settings.viewportWidth &&
-      preset.height === settings.viewportHeight,
+      preset.frameStyle === settings.frameStyle &&
+      preset.viewportWidth === settings.viewportWidth &&
+      preset.viewportHeight === settings.viewportHeight &&
+      !settings.showUrl,
   );
 }
 
-export function applyViewportPreset(
+export function applyDevicePreset(
   settings: CaptureSettings,
-  preset: ViewportPreset,
+  preset: DevicePreset,
 ): CaptureSettings {
+  if (preset.kind === 'desktop') {
+    const scaledViewportPixels =
+      preset.viewportWidth *
+      settings.captureScale *
+      preset.viewportHeight *
+      settings.captureScale;
+
+    return {
+      ...settings,
+      outputWidth: preset.outputWidth,
+      outputHeight: preset.outputHeight,
+      viewportWidth: preset.viewportWidth,
+      viewportHeight: preset.viewportHeight,
+      deviceMode: preset.deviceMode,
+      frameStyle: preset.frameStyle,
+      margin: preset.margin,
+      captureScale:
+        scaledViewportPixels > MAX_CAPTURE_PIXELS
+          ? 1
+          : settings.captureScale,
+      showUrl: true,
+    };
+  }
+
   return {
     ...settings,
     deviceMode: preset.deviceMode,
     frameStyle: preset.frameStyle,
-    viewportWidth: preset.width,
-    viewportHeight: preset.height,
-    showUrl: preset.frameStyle === 'browser',
+    viewportWidth: preset.viewportWidth,
+    viewportHeight: preset.viewportHeight,
+    showUrl: false,
   };
 }
 
-export function applyCustomViewportMode(
+export function applyCustomDeviceMode(
   settings: CaptureSettings,
   deviceMode: DeviceMode,
 ): CaptureSettings {

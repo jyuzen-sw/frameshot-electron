@@ -81,7 +81,7 @@ export function CompositionCanvas({
         <div className="target-suspended-placeholder">
           <strong>
             {pageSuspensionReason === 'viewport-menu'
-              ? '表示サイズを選択中'
+              ? 'サイズプリセットを選択中'
               : '設定を編集中'}
           </strong>
           <span>ライブページは一時的に非表示です</span>

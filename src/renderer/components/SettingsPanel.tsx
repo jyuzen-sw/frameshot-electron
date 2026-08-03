@@ -28,13 +28,16 @@ interface SettingsPanelProps {
   settings: CaptureSettings;
   currentHost: string | null;
   certificateAllowed: boolean;
-  focusViewportRequest: number;
+  focusSizeRequest: number;
+  focusSizeTarget: SizeFocusTarget;
   onClose: () => void;
   onSettingsChange: React.Dispatch<React.SetStateAction<CaptureSettings>>;
   onCertificateAllowed: (allowed: boolean) => void;
   onResetSession: () => void;
   onOpenDevTools: () => void;
 }
+
+export type SizeFocusTarget = 'screenshot' | 'page';
 
 interface NumberFieldProps {
   label: string;
@@ -137,25 +140,31 @@ export function SettingsPanel({
   settings,
   currentHost,
   certificateAllowed,
-  focusViewportRequest,
+  focusSizeRequest,
+  focusSizeTarget,
   onClose,
   onSettingsChange,
   onCertificateAllowed,
   onResetSession,
   onOpenDevTools,
 }: SettingsPanelProps): React.JSX.Element {
+  const screenshotWidthRef = useRef<HTMLInputElement>(null);
   const viewportWidthRef = useRef<HTMLInputElement>(null);
   const plannedExport = calculateCompositionLayout(settings).artboard;
 
   useEffect(() => {
-    if (focusViewportRequest === 0) return;
-    viewportWidthRef.current?.scrollIntoView({
+    if (focusSizeRequest === 0) return;
+    const field =
+      focusSizeTarget === 'screenshot'
+        ? screenshotWidthRef.current
+        : viewportWidthRef.current;
+    field?.scrollIntoView({
       block: 'center',
       behavior: 'smooth',
     });
-    viewportWidthRef.current?.focus({ preventScroll: true });
-    viewportWidthRef.current?.select();
-  }, [focusViewportRequest]);
+    field?.focus({ preventScroll: true });
+    field?.select();
+  }, [focusSizeRequest, focusSizeTarget]);
 
   const patch = <K extends keyof CaptureSettings>(
     key: K,
@@ -187,11 +196,12 @@ export function SettingsPanel({
 
       <div className="settings-scroll">
         <section className="settings-section">
-          <header><span>01</span><div><strong>サイズ</strong><small>出力画像とWebページの表示領域</small></div></header>
-          <div className="subheading"><span>構図キャンバス（最大範囲）</span><em>MAX</em></div>
+          <header><span>01</span><div><strong>サイズ</strong><small>スクリーンショット全体とWebページの表示サイズ</small></div></header>
+          <div className="subheading"><span>スクリーンショットサイズ</span><em>MAX</em></div>
+          <p className="size-description">背景・余白・フレームを含む画像全体の最大サイズと縦横比</p>
           <div className="two-column-fields">
-            <NumberField label="幅" value={settings.outputWidth} min={320} max={7680} suffix="px" onChange={(value) => patch('outputWidth', value)} />
-            <NumberField label="高さ" value={settings.outputHeight} min={320} max={7680} suffix="px" onChange={(value) => patch('outputHeight', value)} />
+            <NumberField inputRef={screenshotWidthRef} ariaLabel="スクリーンショットサイズ 幅" label="幅" value={settings.outputWidth} min={320} max={7680} suffix="px" onChange={(value) => patch('outputWidth', value)} />
+            <NumberField ariaLabel="スクリーンショットサイズ 高さ" label="高さ" value={settings.outputHeight} min={320} max={7680} suffix="px" onChange={(value) => patch('outputHeight', value)} />
           </div>
           <div className="quick-size-row">
             {[
@@ -207,10 +217,10 @@ export function SettingsPanel({
             書き出し予定 {plannedExport.width} × {plannedExport.height}
           </output>
 
-          <div className="subheading"><span>ページ表示領域</span><em>{settings.deviceMode}</em></div>
+          <div className="subheading"><span>ページ表示サイズ</span><em>{settings.deviceMode}</em></div>
           <div className="two-column-fields">
-            <NumberField inputRef={viewportWidthRef} ariaLabel="ページ表示領域 幅" label="幅" value={settings.viewportWidth} min={240} max={3840} suffix="px" onChange={(value) => patch('viewportWidth', value)} />
-            <NumberField ariaLabel="ページ表示領域 高さ" label="高さ" value={settings.viewportHeight} min={240} max={3840} suffix="px" onChange={(value) => patch('viewportHeight', value)} />
+            <NumberField inputRef={viewportWidthRef} ariaLabel="ページ表示サイズ 幅" label="幅" value={settings.viewportWidth} min={240} max={3840} suffix="px" onChange={(value) => patch('viewportWidth', value)} />
+            <NumberField ariaLabel="ページ表示サイズ 高さ" label="高さ" value={settings.viewportHeight} min={240} max={3840} suffix="px" onChange={(value) => patch('viewportHeight', value)} />
           </div>
         </section>
 

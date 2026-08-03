@@ -6,13 +6,13 @@ import {
   type MouseEvent,
 } from 'react';
 import {
-  findViewportPreset,
-  viewportPresetsFor,
+  devicePresetsFor,
+  findDevicePreset,
 } from '@shared/presets';
 import type {
   CaptureSettings,
+  DevicePreset,
   DeviceMode,
-  ViewportPreset,
 } from '@shared/types';
 import {
   ChevronDownIcon,
@@ -46,9 +46,15 @@ function moveMenuFocus(event: KeyboardEvent<HTMLDivElement>): void {
 interface ViewportMenuListProps {
   deviceMode: DeviceMode;
   settings: CaptureSettings;
-  onViewportPreset: (preset: ViewportPreset) => void;
-  onCustomViewport: (deviceMode: DeviceMode) => void;
+  onDevicePreset: (preset: DevicePreset) => void;
+  onCustomSize: (deviceMode: DeviceMode) => void;
   onDismiss: (restoreTriggerFocus: boolean) => void;
+}
+
+interface PresetGroup {
+  id: string;
+  label: string;
+  presets: readonly DevicePreset[];
 }
 
 function shouldRestoreTriggerFocus(
@@ -60,29 +66,43 @@ function shouldRestoreTriggerFocus(
 export function ViewportMenuList({
   deviceMode,
   settings,
-  onViewportPreset,
-  onCustomViewport,
+  onDevicePreset,
+  onCustomSize,
   onDismiss,
 }: ViewportMenuListProps): React.JSX.Element {
-  const exactPreset = findViewportPreset(settings);
+  const exactPreset = findDevicePreset(settings);
   const label = deviceMode === 'desktop' ? 'Desktop' : 'Phone';
-  const presets = viewportPresetsFor(deviceMode);
-  const presetGroups =
+  const sizeLabel =
     deviceMode === 'desktop'
-      ? [{ id: 'desktop', label: 'Desktop', presets }]
+      ? 'スクリーンショットサイズ'
+      : 'ページ表示サイズ';
+  const presets = devicePresetsFor(deviceMode);
+  const presetGroups: readonly PresetGroup[] =
+    deviceMode === 'desktop'
+      ? [{ id: 'resolution', label: '画面解像度', presets }]
       : [
           {
-            id: 'phone',
-            label: 'Phone',
+            id: 'android',
+            label: 'Android',
             presets: presets.filter(
-              (preset) => preset.frameStyle === 'phone',
+              (preset) =>
+                preset.kind === 'mobile' && preset.group === 'android',
+            ),
+          },
+          {
+            id: 'iphone',
+            label: 'iPhone',
+            presets: presets.filter(
+              (preset) =>
+                preset.kind === 'mobile' && preset.group === 'iphone',
             ),
           },
           {
             id: 'ipad',
             label: 'iPad',
             presets: presets.filter(
-              (preset) => preset.frameStyle === 'tablet',
+              (preset) =>
+                preset.kind === 'mobile' && preset.group === 'ipad',
             ),
           },
         ];
@@ -91,7 +111,7 @@ export function ViewportMenuList({
     <div
       className="viewport-menu-list"
       role="menu"
-      aria-label={`${label} viewport`}
+      aria-label={`${label} ${sizeLabel}プリセット`}
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
           event.preventDefault();
@@ -104,22 +124,16 @@ export function ViewportMenuList({
     >
       {presetGroups.map((group) => {
         const headingId = `viewport-${deviceMode}-${group.id}-heading`;
-        const hasVisibleHeading = deviceMode === 'mobile';
         return (
           <div
             className="viewport-menu-group"
             role="group"
-            aria-label={
-              hasVisibleHeading ? undefined : `${group.label} presets`
-            }
-            aria-labelledby={hasVisibleHeading ? headingId : undefined}
+            aria-labelledby={headingId}
             key={group.id}
           >
-            {hasVisibleHeading && (
-              <span className="viewport-menu-heading" id={headingId}>
-                {group.label}
-              </span>
-            )}
+            <span className="viewport-menu-heading" id={headingId}>
+              {group.label}
+            </span>
             {group.presets.map((preset) => {
               const selected = exactPreset?.id === preset.id;
               return (
@@ -130,14 +144,16 @@ export function ViewportMenuList({
                   key={preset.id}
                   className={selected ? 'selected' : ''}
                   onClick={(event) => {
-                    onViewportPreset(preset);
+                    onDevicePreset(preset);
                     onDismiss(shouldRestoreTriggerFocus(event));
                   }}
                 >
                   <span>
                     <b>{preset.name}</b>
                     <small>
-                      {preset.width} × {preset.height}
+                      {preset.kind === 'desktop'
+                        ? `${preset.outputWidth} × ${preset.outputHeight} · ページ表示サイズ ${preset.viewportWidth} × ${preset.viewportHeight}`
+                        : `${preset.viewportWidth} × ${preset.viewportHeight}`}
                     </small>
                   </span>
                   {selected && <i aria-hidden="true">✓</i>}
@@ -159,13 +175,17 @@ export function ViewportMenuList({
             : 'custom'
         }
         onClick={() => {
-          onCustomViewport(deviceMode);
+          onCustomSize(deviceMode);
           onDismiss(false);
         }}
       >
         <span>
           <b>Custom…</b>
-          <small>幅と高さを入力</small>
+          <small>
+            {deviceMode === 'desktop'
+              ? 'スクリーンショットサイズを入力'
+              : 'ページ表示サイズを入力'}
+          </small>
         </span>
         {settings.deviceMode === deviceMode && !exactPreset && (
           <i aria-hidden="true">✓</i>
@@ -178,8 +198,8 @@ export function ViewportMenuList({
 interface ViewportMenuProps {
   settings: CaptureSettings;
   openMenu: DeviceMode | null;
-  onViewportPreset: (preset: ViewportPreset) => void;
-  onCustomViewport: (deviceMode: DeviceMode) => void;
+  onDevicePreset: (preset: DevicePreset) => void;
+  onCustomSize: (deviceMode: DeviceMode) => void;
   onMenuOpen: (deviceMode: DeviceMode) => void;
   onMenuDismiss: (deviceMode: DeviceMode) => void;
 }
@@ -187,8 +207,8 @@ interface ViewportMenuProps {
 export function ViewportMenu({
   settings,
   openMenu,
-  onViewportPreset,
-  onCustomViewport,
+  onDevicePreset,
+  onCustomSize,
   onMenuOpen,
   onMenuDismiss,
 }: ViewportMenuProps): React.JSX.Element {
@@ -199,7 +219,7 @@ export function ViewportMenu({
     desktop: null,
     mobile: null,
   });
-  const exactPreset = findViewportPreset(settings);
+  const exactPreset = findDevicePreset(settings);
 
   const closeViewportMenu = useCallback(
     (deviceMode: DeviceMode, restoreTriggerFocus: boolean): void => {
@@ -282,8 +302,10 @@ export function ViewportMenu({
             <b>{label}</b>
             {active && (
               <small>
-                {exactPreset?.name ?? 'Custom'} · {settings.viewportWidth}×
-                {settings.viewportHeight}
+                {exactPreset?.name ?? 'Custom'} ·{' '}
+                {deviceMode === 'desktop'
+                  ? `${settings.outputWidth}×${settings.outputHeight}`
+                  : `${settings.viewportWidth}×${settings.viewportHeight}`}
               </small>
             )}
           </span>
@@ -293,8 +315,8 @@ export function ViewportMenu({
           <ViewportMenuList
             deviceMode={deviceMode}
             settings={settings}
-            onViewportPreset={onViewportPreset}
-            onCustomViewport={onCustomViewport}
+            onDevicePreset={onDevicePreset}
+            onCustomSize={onCustomSize}
             onDismiss={(restoreTriggerFocus) =>
               closeViewportMenu(deviceMode, restoreTriggerFocus)
             }
@@ -308,7 +330,7 @@ export function ViewportMenu({
     <div
       className="toolbar-view-group"
       ref={viewportMenusRef}
-      aria-label="viewportプリセット"
+      aria-label="スクリーンショットサイズとページ表示サイズのプリセット"
     >
       {renderViewportMenu('desktop')}
       {renderViewportMenu('mobile')}

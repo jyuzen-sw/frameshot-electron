@@ -4,6 +4,7 @@ export type BackgroundStyle = 'soft' | 'clean' | 'fluid';
 export type CaptureScale = 1 | 2;
 export type ExportDestination = 'clipboard' | 'file';
 export type AppShortcut = 'save' | 'focus-url' | 'reload-target';
+export type MobileDeviceGroup = 'android' | 'iphone' | 'ipad';
 
 export interface ViewportSpec {
   width: number;
@@ -32,14 +33,31 @@ export interface CaptureSettings {
   showUrl: boolean;
 }
 
-export interface ViewportPreset {
+export interface DesktopResolutionPreset {
+  kind: 'desktop';
   id: string;
   name: string;
-  deviceMode: DeviceMode;
-  frameStyle: FrameStyle;
-  width: number;
-  height: number;
+  deviceMode: 'desktop';
+  frameStyle: 'browser';
+  outputWidth: number;
+  outputHeight: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  margin: number;
 }
+
+export interface MobileDevicePreset {
+  kind: 'mobile';
+  id: string;
+  name: string;
+  group: MobileDeviceGroup;
+  deviceMode: 'mobile';
+  frameStyle: 'phone' | 'tablet';
+  viewportWidth: number;
+  viewportHeight: number;
+}
+
+export type DevicePreset = DesktopResolutionPreset | MobileDevicePreset;
 
 export interface GradientPreset {
   id: string;
