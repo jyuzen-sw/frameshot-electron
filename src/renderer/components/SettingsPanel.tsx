@@ -21,6 +21,8 @@ import {
   gradientPresetCssProperties,
   isGradientPresetActive,
 } from '../background';
+import '../background.css';
+import './SettingsPanel.css';
 
 interface SettingsPanelProps {
   settings: CaptureSettings;

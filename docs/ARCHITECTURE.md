@@ -8,7 +8,9 @@ FrameShotは、操作UI、対象ページ、出力処理を別々のWebContents�
 
 Reactで構築され、URL、viewportプリセット、出力設定、ライブキャンバスを担当します。ファイルシステムやElectron APIには直接アクセスせず、preloadが `contextBridge` で公開する限定的な `window.frameShot` APIだけを使用します。
 
-Desktop / Mobileのヘッダーリストは、デバイス種別、フレーム、論理ビューポートをまとめて変更します。Customを選んだ場合に設定パネルを開き、ページ表示領域の幅入力へフォーカスします。Appは設定パネル、Desktop / Mobileメニュー、未表示を単一の排他状態として管理します。Escapeでメニューを閉じた場合だけトリガーへフォーカスを戻し、外側クリックでは現在のフォーカスを強制移動しません。フローティングUIを開閉してもworkspaceのレイアウト、キャンバス、ページ表示領域の座標と寸法を変えません。Electronのネイティブアプリケーションメニューは無効化します。保存、URLフォーカス、再読み込みのショートカットは、Main Processが対象ページ側の入力も捕捉して操作UIへ中継するため、どちらにフォーカスがあっても動作します。
+Desktop / Mobileのヘッダーリストは、デバイス種別、フレーム、論理ビューポートをまとめて変更します。Customを選んだ場合に設定パネルを開き、ページ表示領域の幅入力へフォーカスします。Appは設定パネル、Desktop / Mobileメニュー、未表示を単一の排他状態として管理します。Escapeでメニューを閉じた場合だけトリガーへフォーカスを戻し、外側クリックでは現在のフォーカスを強制移動しません。フローティングUIを開閉してもworkspaceのレイアウト、キャンバス、ページ表示領域の座標と寸法を変えません。
+
+64pxのAppHeaderはブランド、ページ操作、viewport、書き出し操作をまとめます。ブランド領域は通常の製品名と、処理中、完了、エラーを排他的に表示するHeaderFeedbackを兼ねます。通知はWebContentsViewのbounds外に置くため、対象ページを隠したり状態を失わせたりせずに表示できます。対象ページの読み込みエラーは成功したmain-frame遷移まで保持し、ヘッダーからキャッシュを無視して再試行できます。Electronのネイティブアプリケーションメニューは無効化します。保存、URLフォーカス、再読み込みのショートカットは、Main Processが対象ページ側の入力も捕捉して操作UIへ中継するため、どちらにフォーカスがあっても動作します。
 
 本番ビルドは `file://` ではなく `frameshot-app://app/` からbundle内のファイルだけを配信します。protocol handlerはhost、path、methodを検証してpath traversalを拒否し、index HTMLへ次の制約を含むCSPを付けます。
 
@@ -42,13 +44,15 @@ Rendererは `CompositionCanvas` を実際の出力寸法で構築し、CSS trans
 
 ## 共通キャンバス
 
-ライブ表示と書き出しは、同じ `CompositionCanvas` コンポーネントと `styles.css` を使います。外側は設定した出力幅・高さを上限とする黒い最大構図キャンバス、内側は背景、glow、grain、フレーム、ページ領域を含むアートボードです。アートボードはBrowser / Phone / Tablet / Noneの装飾を含むフレーム外周から有効余白だけ広げ、最大構図キャンバスへクランプしたうえで、左右・上下の対向辺を個別に整数へ丸めます。フレーム座標はアートボード原点からの相対値に変換し、背景効果と影は `overflow: hidden` で内側に閉じ込めます。
+ライブ表示と書き出しは、同じ `CompositionCanvas`、`BrowserFrame`、コンポーネント所有のplain CSSを使います。外側は設定した出力幅・高さを上限とする黒い最大構図キャンバス、内側は背景、glow、grain、フレーム、ページ領域を含むアートボードです。アートボードはBrowser / Phone / Tablet / Noneの装飾を含むフレーム外周から有効余白だけ広げ、最大構図キャンバスへクランプしたうえで、左右・上下の対向辺を個別に整数へ丸めます。フレーム座標はアートボード原点からの相対値に変換し、背景効果と影は `overflow: hidden` で内側に閉じ込めます。
 
 既定余白は32pxです。最大構図キャンバスの縦横比に合わせて余った黒い領域はライブプレビューで構図を確認するためだけに表示し、PNGには含めません。既定の1920 × 1080キャンバス、1440 × 900 BrowserではアートボードとPNGが1592 × 1080になります。DesktopのフレームとViewportにはそれぞれ8pxと6pxの角丸を適用し、Phone / Tablet固有の角丸は変更しません。
 
 背景は既存6種のlinear gradientに加え、Sea Glass Flow、Orchid Tide、Rosewater Ink、Apricot Lilacの4種を提供します。追加したFluid Gradient / Alcohol Ink風の背景は、淡いradial、conic、linear gradientをCSSで重ねて描画し、bitmap素材や外部リソースには依存しません。presetは色、角度、背景styleをまとめて適用し、ライブ表示とPNG書き出しで同じbackground descriptorを使います。
 
-違いはページ領域だけです。ライブ表示ではその位置に `WebContentsView` を重ね、非表示の書き出しRendererでは直前に取得したページPNGを `<img>` として配置します。ライブ表示用と出力用で別々のマークアップやCSSを保守しないため、表示差分が生じにくい構成です。
+違いはページ領域だけです。ライブ表示ではその位置に `WebContentsView` を重ね、非表示の書き出しRendererでは直前に取得したページPNGを `<img>` として配置します。Browserの装飾は共通の58px bar内部とページ領域に交差しない外周だけへ置き、native viewと画像で重なり順が変わらないようにします。ライブ表示用と出力用で別々のマークアップやCSSを保守しないため、表示差分が生じにくい構成です。
+
+RendererのCSSはglobal tokens・reset、App、AppHeader、HeaderFeedback、ViewportMenu、LiveCanvas、CompositionCanvas、SettingsPanel、共有背景効果へ分割し、各コンポーネントが所有するplain CSSを直接importします。意味のあるclass名はE2Eの観測点として維持します。
 
 ## Renderer設定の永続化
 

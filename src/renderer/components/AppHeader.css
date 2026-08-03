@@ -1,0 +1,298 @@
+.toolbar {
+  position: relative;
+  z-index: 20;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: clamp(240px, 18vw, 280px) minmax(280px, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(151, 155, 168, 0.13);
+  background:
+    linear-gradient(90deg, rgba(168, 160, 195, 0.035), transparent 34%),
+    linear-gradient(180deg, rgba(22, 25, 33, 0.985), rgba(15, 18, 25, 0.975));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 9px 28px rgba(0, 0, 0, 0.2);
+}
+
+.toolbar-browser-group {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(220px, 1fr);
+  align-items: center;
+  gap: 7px;
+}
+
+.navigation-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.toolbar-actions,
+.toolbar-export-actions {
+  display: flex;
+  align-items: center;
+}
+
+.toolbar-actions {
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.toolbar-export-actions {
+  gap: 4px;
+}
+
+.nav-controls {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgba(151, 155, 168, 0.13);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.028);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.icon-button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: #9298a5;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+.icon-button:hover:not(:disabled) {
+  color: #f5f3f6;
+  background: rgba(255, 255, 255, 0.065);
+}
+
+.icon-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.url-form {
+  min-width: 0;
+  height: 38px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px 3px 12px;
+  border: 1px solid rgba(151, 155, 168, 0.18);
+  border-radius: 11px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
+    rgba(5, 7, 12, 0.48);
+  box-shadow:
+    inset 0 1px 1px rgba(0, 0, 0, 0.25),
+    0 1px 0 rgba(255, 255, 255, 0.025);
+  transition:
+    border-color 130ms ease,
+    box-shadow 130ms ease,
+    background 130ms ease;
+}
+
+.url-form:focus-within {
+  border-color: rgba(151, 158, 218, 0.52);
+  background: rgba(8, 10, 17, 0.66);
+  box-shadow:
+    0 0 0 3px rgba(139, 147, 215, 0.09),
+    inset 0 1px 1px rgba(0, 0, 0, 0.25);
+}
+
+.url-form.has-error {
+  border-color: rgba(255, 125, 145, 0.44);
+}
+
+.connection-dot {
+  width: 7px;
+  height: 7px;
+  display: block;
+  flex: none;
+  border-radius: 50%;
+  background: #565b67;
+  box-shadow: 0 0 0 3px rgba(86, 91, 103, 0.1);
+}
+
+.connection-dot.ready {
+  background: var(--success);
+  box-shadow:
+    0 0 0 3px rgba(112, 217, 171, 0.1),
+    0 0 10px rgba(112, 217, 171, 0.17);
+}
+
+.connection-dot.error {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px rgba(255, 125, 145, 0.1);
+}
+
+.connection-dot.loading {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px rgba(247, 200, 115, 0.1);
+  animation: connection-pulse 1s ease-in-out infinite;
+}
+
+.url-form input {
+  min-width: 0;
+  width: 100%;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: #dedde2;
+  background: transparent;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11.5px;
+  line-height: 30px;
+  user-select: text;
+}
+
+.url-form input::placeholder {
+  color: #666b77;
+}
+
+.url-form > button {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(151, 155, 168, 0.14);
+  border-radius: 8px;
+  color: #babcc4;
+  background: rgba(255, 255, 255, 0.045);
+  font-size: 9px;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.url-form > button:hover:not(:disabled) {
+  color: #f7f5f7;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.toolbar-icon-action {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid rgba(151, 155, 168, 0.14);
+  border-radius: 10px;
+  color: #969ba7;
+  background: rgba(255, 255, 255, 0.032);
+  font-size: 8.5px;
+  font-weight: 720;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.toolbar-icon-action:hover:not(:disabled) {
+  color: #f4f2f5;
+  border-color: rgba(178, 181, 194, 0.24);
+  background: rgba(255, 255, 255, 0.065);
+}
+
+.toolbar-icon-action svg {
+  width: 14px;
+  height: 14px;
+}
+
+.toolbar-save-action {
+  color: #f6f3ff;
+  border-color: rgba(176, 166, 226, 0.3);
+  background:
+    linear-gradient(180deg, rgba(160, 148, 218, 0.88), rgba(124, 111, 185, 0.86));
+  box-shadow:
+    0 6px 16px rgba(92, 76, 164, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.toolbar-save-action:hover:not(:disabled) {
+  color: white;
+  border-color: rgba(198, 190, 238, 0.42);
+  background:
+    linear-gradient(180deg, rgba(171, 160, 226, 0.94), rgba(135, 121, 197, 0.92));
+}
+
+.toolbar-settings-action.active {
+  color: #ded9ff;
+  border-color: rgba(166, 157, 218, 0.28);
+  background: rgba(149, 139, 211, 0.12);
+}
+
+.spin {
+  animation: spin 0.85s linear infinite;
+}
+
+@keyframes connection-pulse {
+  50% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+}
+
+@media (max-width: 1260px) {
+  .toolbar {
+    grid-template-columns: 240px minmax(250px, 1fr) auto auto;
+    gap: 6px;
+    padding-inline: 10px;
+  }
+
+  .toolbar-export-actions span,
+  .toolbar-settings-action span {
+    display: none;
+  }
+
+  .toolbar-icon-action {
+    width: 36px;
+    padding: 0;
+  }
+}
+
+@media (max-width: 1120px) {
+  .toolbar {
+    grid-template-columns: 230px minmax(230px, 1fr) auto auto;
+    gap: 5px;
+    padding-inline: 8px;
+  }
+
+  .toolbar-browser-group,
+  .toolbar-actions {
+    gap: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connection-dot.loading,
+  .spin {
+    animation-duration: 1ms;
+  }
+}

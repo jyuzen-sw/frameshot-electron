@@ -3,13 +3,15 @@ import {
   calculateCompositionLayout,
   shadowCss,
 } from '@shared/layout';
-import { formatUrlForFrame } from '@shared/url';
 import type { CaptureSettings } from '@shared/types';
 import {
   backgroundClassName,
   backgroundCssProperties,
 } from '../background';
+import { BrowserFrame } from './BrowserFrame';
 import { GlobeIcon } from './Icons';
+import '../background.css';
+import './CompositionCanvas.css';
 
 export type CompositionSlotMode = 'live' | 'image';
 export type TargetSuspensionReason = 'settings' | 'viewport-menu';
@@ -57,10 +59,6 @@ export function CompositionCanvas({
     height: px(layout.screen.height),
     borderRadius: px(layout.screen.radius),
   };
-  const dotSize = Math.max(7, 11 * layout.scale);
-  const dotGap = Math.max(5, 8 * layout.scale);
-  const barPadding = Math.max(10, 18 * layout.scale);
-  const fontSize = Math.max(10, Math.min(16, 13 * layout.scale));
   const tabletCameraSize = 8 * layout.scale;
 
   const pageSlot = (
@@ -104,48 +102,16 @@ export function CompositionCanvas({
   );
 
   const frame = settings.frameStyle === 'browser' ? (
-    <section
-      className="composition-browser-frame composition-frame-shadow"
+    <BrowserFrame
       style={frameStyle}
+      scale={layout.scale}
+      barHeight={layout.browserBarHeight}
+      addressHeight={layout.browserAddressHeight}
+      pageUrl={pageUrl}
+      showUrl={settings.showUrl}
     >
-      <header
-        className="composition-browser-bar"
-        style={{
-          height: px(layout.browserBarHeight),
-          padding: `0 ${px(barPadding)}`,
-        }}
-      >
-        <span
-          className="composition-traffic"
-          style={{ gap: px(dotGap) }}
-          aria-hidden="true"
-        >
-          <i style={{ width: px(dotSize), height: px(dotSize) }} />
-          <i style={{ width: px(dotSize), height: px(dotSize) }} />
-          <i style={{ width: px(dotSize), height: px(dotSize) }} />
-        </span>
-        <span
-          className="composition-address"
-          style={{
-            height: px(layout.browserAddressHeight),
-            fontSize: px(fontSize),
-          }}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M7 10V8a5 5 0 0 1 10 0v2h1.2A1.8 1.8 0 0 1 20 11.8v7.4a1.8 1.8 0 0 1-1.8 1.8H5.8A1.8 1.8 0 0 1 4 19.2v-7.4A1.8 1.8 0 0 1 5.8 10H7Zm2 0h6V8a3 3 0 0 0-6 0v2Z" />
-          </svg>
-          <span>
-            {settings.showUrl && pageUrl
-              ? formatUrlForFrame(pageUrl)
-              : 'Captured page'}
-          </span>
-        </span>
-        <span className="composition-browser-actions" aria-hidden="true">
-          <i /><i /><i />
-        </span>
-      </header>
       {pageSlot}
-    </section>
+    </BrowserFrame>
   ) : settings.frameStyle === 'phone' ? (
     <section
       className="composition-phone-frame composition-frame-shadow"

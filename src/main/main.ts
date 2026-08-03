@@ -67,6 +67,7 @@ async function createMainWindow(): Promise<void> {
     height: 930,
     minWidth: 1040,
     minHeight: 700,
+    useContentSize: true,
     show: false,
     backgroundColor: '#0a0d14',
     autoHideMenuBar: true,

@@ -1,0 +1,86 @@
+.composition-artboard.background-fluid,
+.gradient-swatch.background-fluid {
+  background:
+    radial-gradient(
+      ellipse 72% 58% at 18% 18%,
+      color-mix(in srgb, var(--background-from) 72%, white) 0%,
+      transparent 58%
+    ),
+    radial-gradient(
+      ellipse 68% 54% at 82% 24%,
+      color-mix(in srgb, var(--background-to) 76%, white) 0%,
+      transparent 56%
+    ),
+    radial-gradient(
+      ellipse 78% 62% at 54% 82%,
+      color-mix(in srgb, var(--background-from) 46%, var(--background-to)) 0%,
+      transparent 60%
+    ),
+    conic-gradient(
+      from var(--background-angle) at 58% 54%,
+      color-mix(in srgb, var(--background-from) 54%, white),
+      transparent 24%,
+      color-mix(in srgb, var(--background-to) 58%, white) 52%,
+      transparent 76%,
+      color-mix(in srgb, var(--background-from) 46%, white)
+    ),
+    linear-gradient(
+      var(--background-angle),
+      var(--background-from) 0%,
+      var(--background-to) 100%
+    );
+}
+
+.composition-glow {
+  position: absolute;
+  z-index: -2;
+  display: block;
+  border-radius: 50%;
+  opacity: 0.62;
+  pointer-events: none;
+}
+
+.glow-a {
+  width: 65%;
+  aspect-ratio: 1;
+  left: -25%;
+  top: -42%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.78), transparent 69%);
+}
+
+.glow-b {
+  width: 56%;
+  aspect-ratio: 1;
+  right: -22%;
+  bottom: -39%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.62), transparent 71%);
+}
+
+.background-clean .composition-glow {
+  opacity: 0.24;
+}
+
+.background-fluid .composition-glow {
+  opacity: 0.28;
+}
+
+.composition-grain {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.06;
+  background-image:
+    radial-gradient(circle at 20% 20%, rgba(15, 23, 42, 0.25) 0 0.5px, transparent 0.75px),
+    radial-gradient(circle at 80% 40%, rgba(255, 255, 255, 0.85) 0 0.5px, transparent 0.75px);
+  background-size: 5px 5px, 7px 7px;
+  mix-blend-mode: soft-light;
+}
+
+.background-clean .composition-grain {
+  opacity: 0.03;
+}
+
+.background-fluid .composition-grain {
+  opacity: 0.04;
+}

@@ -7,7 +7,7 @@ import {
 } from '../../src/shared/presets';
 import type { CaptureSettings } from '../../src/shared/types';
 import { SettingsPanel } from '../../src/renderer/components/SettingsPanel';
-import { ViewportMenuList } from '../../src/renderer/components/Toolbar';
+import { ViewportMenuList } from '../../src/renderer/components/ViewportMenu';
 
 function buttonMarkup(markup: string, label: string): string {
   const button = Array.from(

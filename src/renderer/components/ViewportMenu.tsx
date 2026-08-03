@@ -4,7 +4,6 @@ import {
   useRef,
   type KeyboardEvent,
   type MouseEvent,
-  type RefObject,
 } from 'react';
 import {
   findViewportPreset,
@@ -13,48 +12,16 @@ import {
 import type {
   CaptureSettings,
   DeviceMode,
-  NavigationState,
   ViewportPreset,
 } from '@shared/types';
 import {
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  CameraIcon,
   ChevronDownIcon,
-  CopyIcon,
   MonitorIcon,
   PhoneIcon,
-  ReloadIcon,
-  SaveIcon,
-  SlidersIcon,
 } from './Icons';
+import './ViewportMenu.css';
 
-interface ToolbarProps {
-  url: string;
-  urlInputRef: RefObject<HTMLInputElement | null>;
-  settingsButtonRef: RefObject<HTMLButtonElement | null>;
-  navigation: NavigationState;
-  settings: CaptureSettings;
-  busy: boolean;
-  settingsOpen: boolean;
-  openViewportMenu: DeviceMode | null;
-  onUrlChange: (value: string) => void;
-  onNavigate: () => void;
-  onBack: () => void;
-  onForward: () => void;
-  onReload: () => void;
-  onViewportPreset: (preset: ViewportPreset) => void;
-  onCustomViewport: (deviceMode: DeviceMode) => void;
-  onViewportMenuOpen: (deviceMode: DeviceMode) => void;
-  onViewportMenuDismiss: (deviceMode: DeviceMode) => void;
-  onCopy: () => void;
-  onSave: () => void;
-  onSettingsToggle: () => void;
-}
-
-function moveMenuFocus(
-  event: KeyboardEvent<HTMLDivElement>,
-): void {
+function moveMenuFocus(event: KeyboardEvent<HTMLDivElement>): void {
   if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
   const items = Array.from(
     event.currentTarget.querySelectorAll<HTMLButtonElement>(
@@ -149,10 +116,7 @@ export function ViewportMenuList({
             key={group.id}
           >
             {hasVisibleHeading && (
-              <span
-                className="viewport-menu-heading"
-                id={headingId}
-              >
+              <span className="viewport-menu-heading" id={headingId}>
                 {group.label}
               </span>
             )}
@@ -199,7 +163,10 @@ export function ViewportMenuList({
           onDismiss(false);
         }}
       >
-        <span><b>Custom…</b><small>幅と高さを入力</small></span>
+        <span>
+          <b>Custom…</b>
+          <small>幅と高さを入力</small>
+        </span>
         {settings.deviceMode === deviceMode && !exactPreset && (
           <i aria-hidden="true">✓</i>
         )}
@@ -208,28 +175,23 @@ export function ViewportMenuList({
   );
 }
 
-export function Toolbar({
-  url,
-  urlInputRef,
-  settingsButtonRef,
-  navigation,
+interface ViewportMenuProps {
+  settings: CaptureSettings;
+  openMenu: DeviceMode | null;
+  onViewportPreset: (preset: ViewportPreset) => void;
+  onCustomViewport: (deviceMode: DeviceMode) => void;
+  onMenuOpen: (deviceMode: DeviceMode) => void;
+  onMenuDismiss: (deviceMode: DeviceMode) => void;
+}
+
+export function ViewportMenu({
   settings,
-  busy,
-  settingsOpen,
-  openViewportMenu,
-  onUrlChange,
-  onNavigate,
-  onBack,
-  onForward,
-  onReload,
+  openMenu,
   onViewportPreset,
   onCustomViewport,
-  onViewportMenuOpen,
-  onViewportMenuDismiss,
-  onCopy,
-  onSave,
-  onSettingsToggle,
-}: ToolbarProps): React.JSX.Element {
+  onMenuOpen,
+  onMenuDismiss,
+}: ViewportMenuProps): React.JSX.Element {
   const viewportMenusRef = useRef<HTMLDivElement>(null);
   const viewportTriggerRefs = useRef<
     Record<DeviceMode, HTMLButtonElement | null>
@@ -241,29 +203,29 @@ export function Toolbar({
 
   const closeViewportMenu = useCallback(
     (deviceMode: DeviceMode, restoreTriggerFocus: boolean): void => {
-      onViewportMenuDismiss(deviceMode);
+      onMenuDismiss(deviceMode);
       if (restoreTriggerFocus) {
         requestAnimationFrame(() =>
           viewportTriggerRefs.current[deviceMode]?.focus(),
         );
       }
     },
-    [onViewportMenuDismiss],
+    [onMenuDismiss],
   );
 
   useEffect(() => {
-    if (!openViewportMenu) return;
+    if (!openMenu) return;
     const closeOnPointer = (event: PointerEvent) => {
       if (
         event.target instanceof Node &&
         !viewportMenusRef.current?.contains(event.target)
       ) {
-        closeViewportMenu(openViewportMenu, false);
+        closeViewportMenu(openMenu, false);
       }
     };
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') {
-        closeViewportMenu(openViewportMenu, true);
+        closeViewportMenu(openMenu, true);
       }
     };
     document.addEventListener('pointerdown', closeOnPointer);
@@ -272,7 +234,7 @@ export function Toolbar({
       document.removeEventListener('pointerdown', closeOnPointer);
       window.removeEventListener('keydown', closeOnEscape);
     };
-  }, [closeViewportMenu, openViewportMenu]);
+  }, [closeViewportMenu, openMenu]);
 
   const renderViewportMenu = (
     deviceMode: DeviceMode,
@@ -280,7 +242,7 @@ export function Toolbar({
     const active = settings.deviceMode === deviceMode;
     const label = deviceMode === 'desktop' ? 'Desktop' : 'Phone';
     const Icon = deviceMode === 'desktop' ? MonitorIcon : PhoneIcon;
-    const expanded = openViewportMenu === deviceMode;
+    const expanded = openMenu === deviceMode;
     return (
       <div
         className={`viewport-menu ${active ? 'active' : ''}`}
@@ -298,13 +260,13 @@ export function Toolbar({
             if (expanded) {
               closeViewportMenu(deviceMode, false);
             } else {
-              onViewportMenuOpen(deviceMode);
+              onMenuOpen(deviceMode);
             }
           }}
           onKeyDown={(event) => {
             if (event.key === 'ArrowDown') {
               event.preventDefault();
-              onViewportMenuOpen(deviceMode);
+              onMenuOpen(deviceMode);
               requestAnimationFrame(() => {
                 viewportMenusRef.current
                   ?.querySelector<HTMLButtonElement>(
@@ -343,106 +305,13 @@ export function Toolbar({
   };
 
   return (
-    <header className="toolbar">
-      <div className="brand" aria-label="FrameShot">
-        <span className="brand-mark"><CameraIcon /></span>
-        <span className="brand-copy">
-          <strong>FrameShot</strong>
-          <small>Promo screenshot studio</small>
-        </span>
-      </div>
-
-      <div className="toolbar-browser-group">
-        <nav className="nav-controls" aria-label="ページ操作">
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="戻る"
-            disabled={!navigation.canGoBack || busy}
-            onClick={onBack}
-          ><ArrowLeftIcon /></button>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="進む"
-            disabled={!navigation.canGoForward || busy}
-            onClick={onForward}
-          ><ArrowRightIcon /></button>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="再読み込み"
-            disabled={!navigation.url || busy}
-            onClick={onReload}
-          ><ReloadIcon className={navigation.isLoading ? 'spin' : ''} /></button>
-        </nav>
-
-        <form
-          className={`url-form ${navigation.error ? 'has-error' : ''}`}
-          onSubmit={(event) => {
-            event.preventDefault();
-            onNavigate();
-          }}
-        >
-          <span className={`connection-dot ${navigation.isLoading ? 'loading' : navigation.error ? 'error' : navigation.url ? 'ready' : ''}`} />
-          <input
-            ref={urlInputRef}
-            aria-label="URL"
-            value={url}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            placeholder="http://localhost:4321"
-            onChange={(event) => onUrlChange(event.target.value)}
-          />
-          <button type="submit" disabled={busy || !url.trim()}>開く</button>
-        </form>
-        <output className="navigation-status" aria-live="polite">
-          {navigation.title}
-        </output>
-      </div>
-
-      <div
-        className="toolbar-view-group"
-        ref={viewportMenusRef}
-        aria-label="viewportプリセット"
-      >
-        {renderViewportMenu('desktop')}
-        {renderViewportMenu('mobile')}
-      </div>
-
-      <div className="toolbar-actions" aria-label="書き出しと設定">
-        <div className="toolbar-export-actions">
-          <button
-            className="toolbar-icon-action toolbar-copy-action"
-            type="button"
-            aria-label="画像をコピー"
-            title="画像をコピー"
-            disabled={!navigation.url || busy}
-            onClick={onCopy}
-          ><CopyIcon /><span>コピー</span></button>
-          <button
-            className="toolbar-icon-action toolbar-save-action"
-            type="button"
-            aria-label="PNGを保存"
-            title="PNGを保存"
-            disabled={!navigation.url || busy}
-            onClick={onSave}
-          ><SaveIcon /><span>保存</span></button>
-        </div>
-
-        <button
-          ref={settingsButtonRef}
-          className={`toolbar-icon-action toolbar-settings-action ${settingsOpen ? 'active' : ''}`}
-          data-settings-trigger="true"
-          type="button"
-          aria-label={settingsOpen ? '詳細設定を閉じる' : '詳細設定を開く'}
-          aria-expanded={settingsOpen}
-          aria-controls="settings-panel"
-          title={settingsOpen ? '詳細設定を閉じる' : '詳細設定を開く'}
-          onClick={onSettingsToggle}
-        ><SlidersIcon /><span>設定</span></button>
-      </div>
-    </header>
+    <div
+      className="toolbar-view-group"
+      ref={viewportMenusRef}
+      aria-label="viewportプリセット"
+    >
+      {renderViewportMenu('desktop')}
+      {renderViewportMenu('mobile')}
+    </div>
   );
 }

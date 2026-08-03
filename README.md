@@ -17,6 +17,7 @@
 - 既存6種のグラデーションと、淡色のFluid Gradient / Alcohol Ink風CSS背景4種
 - ライブ表示と書き出しで同じキャンバス・CSSを使用
 - 保存・コピー時に最新のページ状態からPNGを自動生成
+- 処理状況とエラーをライブページに隠れないヘッダー内で表示
 - OAuthポップアップに対応した、アプリ起動中だけの専用セッション
 - 開発環境向けに、証明書検証エラーをホスト単位で許可
 - Electronのネイティブメニューバーを表示しない集中型UI
@@ -51,6 +52,8 @@ npm start
 4. 必要に応じて設定ボタンからフローティングパネルを開き、最大構図サイズ、フレーム、背景、余白、影などを調整します。パネルの開閉でスクショ画面の位置や大きさは変わりません。
 5. 「保存」または「コピー」を押します。その時点のページを自動取得し、ライブ表示と同じキャンバスから最新のPNGを生成します。
 
+処理中、完了、エラーの案内は左上のFrameShotブランド領域へ表示します。ライブページの上へ重ねないため、案内中もページの表示と操作状態は維持されます。
+
 ### 設定パネルと既定の構図
 
 設定パネルは設定ボタン、またはDesktop / PhoneリストのCustomから開きます。設定パネルとDesktop / Phoneメニューは同時に一つだけ表示します。いずれかを表示している間は、DOMより前面に描画されるネイティブのライブページだけを一時的に隠し、背景、フレーム、ページ表示領域の構図はそのまま維持します。閉じると同じページを再読み込みせずに表示するため、URL、スクロール位置、入力内容、ログイン状態は失われません。フローティングUIの開閉状態は保存されず、アプリ起動時は常に閉じています。
@@ -79,10 +82,11 @@ WSL2 / WSLgの `npm start` では、Linux側に書き込んだ画像がWindows�
 
 ```text
 BrowserWindow（React製の操作UI）
+├─ AppHeader（URL・viewport・書き出し・状態表示）
 ├─ CompositionCanvas（黒い最大構図キャンバス）
 │  └─ Artboard（背景・枠・32px余白・影）
 │     └─ WebContentsView（操作可能な対象ページ）
-└─ URL・viewport・詳細設定・保存／コピー
+└─ フローティング詳細設定
                  │ 保存／コピー
                  ▼
 TargetBrowserController.capturePage() → 最新のページPNG
@@ -180,8 +184,11 @@ src/
 │  ├─ App.tsx
 │  ├─ ExportRenderer.tsx             非表示の書き出しRenderer
 │  ├─ components/
+│  │  ├─ AppHeader.tsx               操作ヘッダー
+│  │  ├─ HeaderFeedback.tsx          処理状況・通知・エラー
+│  │  ├─ BrowserFrame.tsx            Browser枠の共通chrome
 │  │  └─ CompositionCanvas.tsx       ライブ・書き出し共通キャンバス
-│  └─ styles.css
+│  └─ styles.css                      tokens・reset・共通style入口
 └─ shared/
    ├─ types.ts
    ├─ presets.ts
