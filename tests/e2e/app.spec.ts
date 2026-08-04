@@ -42,6 +42,7 @@ interface FixtureRequest {
 
 interface FixtureServer {
   failedPaths: Set<string>;
+  hangingPaths: Set<string>;
   requests: FixtureRequest[];
   server: Server;
   url: string;
@@ -213,6 +214,17 @@ class CdpPage {
 
   public async clearViewport(): Promise<void> {
     await this.send('Emulation.clearDeviceMetricsOverride');
+  }
+
+  public async setReducedMotion(reduced: boolean): Promise<void> {
+    await this.send('Emulation.setEmulatedMedia', {
+      features: [
+        {
+          name: 'prefers-reduced-motion',
+          value: reduced ? 'reduce' : 'no-preference',
+        },
+      ],
+    });
   }
 
   public close(): void {
@@ -926,6 +938,7 @@ async function cleanupScenario(
   }
   try {
     fixtureServer.close();
+    fixtureServer.closeAllConnections();
   } catch (error) {
     cleanupErrors.push(error);
   }
@@ -957,6 +970,7 @@ async function cleanupScenario(
 async function startFixtureServer(): Promise<FixtureServer> {
   logE2e('Starting the local fixture server.');
   const failedPaths = new Set<string>();
+  const hangingPaths = new Set<string>();
   const requests: FixtureRequest[] = [];
   const server = createServer((request, response) => {
     const cacheControl = request.headers['cache-control'];
@@ -976,6 +990,12 @@ async function startFixtureServer(): Promise<FixtureServer> {
       return;
     }
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    if (hangingPaths.has(request.url ?? '')) {
+      response.write(
+        '<!doctype html><html><head><title>FrameShot stalled fixture</title></head><body>',
+      );
+      return;
+    }
     if (request.url?.startsWith('/session')) {
       response.end(`<!doctype html>
         <html><head><title>FrameShot session fixture</title></head>
@@ -988,6 +1008,10 @@ async function startFixtureServer(): Promise<FixtureServer> {
         </script></body></html>`);
       return;
     }
+    const readyTitle =
+      request.url === '/after-stall'
+        ? 'FrameShot fixture — recovered'
+        : 'FrameShot fixture — WebGL2 ready';
     response.end(`<!doctype html>
       <html><head><title>FrameShot fixture</title>
       <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1039,7 +1063,7 @@ async function startFixtureServer(): Promise<FixtureServer> {
           gl.viewport(0, 0, canvas.width, canvas.height);
           gl.clearColor(0.2, 0.8, 0.5, 1);
           gl.clear(gl.COLOR_BUFFER_BIT);
-          document.title = 'FrameShot fixture — WebGL2 ready';
+          document.title = ${JSON.stringify(readyTitle)};
         } else {
           document.title = 'FrameShot fixture — WebGL2 blocked';
         }
@@ -1054,6 +1078,7 @@ async function startFixtureServer(): Promise<FixtureServer> {
   logE2e('Local fixture server is listening.');
   return {
     failedPaths,
+    hangingPaths,
     requests,
     server,
     url: `http://127.0.0.1:${address.port}`,
@@ -3572,6 +3597,180 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     targetCdp?.close();
     await cleanupScenario(
       'WebGL2 shared export',
+      app,
+      fixture.server,
+      tempDirectory,
+      scenarioError,
+    );
+  }
+});
+
+test('stops and replaces a stalled target navigation', async () => {
+  const fixture = await startFixtureServer();
+  const tempDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'frameshot-stalled-navigation-e2e-'),
+  );
+  let app: RunningApp | null = null;
+  let scenarioError: unknown;
+
+  try {
+    app = await launchPackagedApp(tempDirectory);
+    await waitForMainUi(app.cdp);
+    await navigateFromMainUi(app.cdp, fixture.url);
+    await waitForMainText(app.cdp, 'FrameShot fixture — WebGL2 ready');
+
+    const stoppedPath = '/stalled-stop';
+    fixture.hangingPaths.add(stoppedPath);
+    await navigateFromMainUi(app.cdp, `${fixture.url}${stoppedPath}`);
+    await expect
+      .poll(
+        () =>
+          app?.cdp.evaluate<boolean>(`
+            (() => {
+              const stop = document.querySelector(
+                'button[aria-label="読み込みを中止"]',
+              );
+              const open = document.querySelector('.url-form > button[type="submit"]');
+              const copy = document.querySelector('button[aria-label="画像をコピー"]');
+              const save = document.querySelector('button[aria-label="PNGを保存"]');
+              const feedback = document.querySelector('.header-feedback');
+              return stop instanceof HTMLButtonElement && !stop.disabled &&
+                open instanceof HTMLButtonElement && !open.disabled &&
+                copy instanceof HTMLButtonElement && copy.disabled &&
+                save instanceof HTMLButtonElement && save.disabled &&
+                feedback?.getAttribute('data-feedback-kind') === 'busy';
+            })()
+          `) ?? false,
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+
+    const normalMotion = await app.cdp.evaluate<{
+      addressDuration: string;
+      addressName: string;
+      feedbackDuration: string;
+      feedbackName: string;
+      stopName: string;
+    }>(`
+      (() => {
+        const feedback = document.querySelector('.header-feedback-spinner');
+        const address = document.querySelector('.connection-dot.loading');
+        const stopIcon = document.querySelector(
+          'button[aria-label="読み込みを中止"] svg',
+        );
+        if (!(feedback instanceof HTMLElement) ||
+            !(address instanceof HTMLElement) ||
+            !(stopIcon instanceof SVGElement)) {
+          throw new Error('Loading motion probes were not found.');
+        }
+        const feedbackStyle = getComputedStyle(feedback);
+        const addressStyle = getComputedStyle(address);
+        const stopStyle = getComputedStyle(stopIcon);
+        return {
+          addressDuration: addressStyle.animationDuration,
+          addressName: addressStyle.animationName,
+          feedbackDuration: feedbackStyle.animationDuration,
+          feedbackName: feedbackStyle.animationName,
+          stopName: stopStyle.animationName,
+        };
+      })()
+    `);
+    expect(normalMotion).toEqual({
+      addressDuration: '1.6s',
+      addressName: 'connection-pulse',
+      feedbackDuration: '1.6s',
+      feedbackName: 'spin',
+      stopName: 'none',
+    });
+
+    await installHeaderFeedbackHistory(app.cdp);
+    await app.cdp.evaluate(`
+      document.querySelector(
+        'button[aria-label="読み込みを中止"]',
+      )?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          app?.cdp.evaluate<boolean>(`
+            document.querySelector('button[aria-label="再読み込み"]') instanceof HTMLButtonElement &&
+              document.querySelector('.header-feedback')?.getAttribute(
+                'data-feedback-kind',
+              ) === 'brand'
+          `) ?? false,
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    const stopFeedbackHistory = await takeHeaderFeedbackHistory(app.cdp);
+    expect(
+      stopFeedbackHistory.some((feedback) => feedback.kind === 'navigation-error'),
+    ).toBe(false);
+
+    const replacedPath = '/stalled-replace';
+    fixture.hangingPaths.add(replacedPath);
+    await navigateFromMainUi(app.cdp, `${fixture.url}${replacedPath}`);
+    await expect
+      .poll(
+        () =>
+          app?.cdp.evaluate<boolean>(`
+            document.querySelector('button[aria-label="読み込みを中止"]') instanceof HTMLButtonElement
+          `) ?? false,
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+
+    await app.cdp.setReducedMotion(true);
+    await expect
+      .poll(
+        () =>
+          app?.cdp.evaluate<[string, string]>(`
+            [
+              getComputedStyle(
+                document.querySelector('.header-feedback-spinner'),
+              ).animationName,
+              getComputedStyle(
+                document.querySelector('.connection-dot.loading'),
+              ).animationName,
+            ]
+          `) ?? ['', ''],
+        { timeout: 5_000 },
+      )
+      .toEqual(['none', 'none']);
+
+    await installHeaderFeedbackHistory(app.cdp);
+    const recoveredUrl = `${fixture.url}/after-stall`;
+    await navigateFromMainUi(app.cdp, recoveredUrl);
+    await waitForMainText(app.cdp, 'FrameShot fixture — recovered');
+    await expect
+      .poll(
+        () =>
+          app?.cdp.evaluate<boolean>(`
+            document.querySelector('button[aria-label="再読み込み"]') instanceof HTMLButtonElement &&
+              document.querySelector('.header-feedback')?.getAttribute(
+                'data-feedback-kind',
+              ) === 'brand'
+          `) ?? false,
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    const replacementFeedbackHistory = await takeHeaderFeedbackHistory(app.cdp);
+    expect(
+      replacementFeedbackHistory.some(
+        (feedback) => feedback.kind === 'navigation-error',
+      ),
+    ).toBe(false);
+    expect(
+      fixture.requests.some((request) => request.url === '/after-stall'),
+    ).toBe(true);
+  } catch (error) {
+    scenarioError = error;
+    if (app) {
+      logElectronOutput(app.output());
+    }
+    throw error;
+  } finally {
+    await cleanupScenario(
+      'stalled navigation',
       app,
       fixture.server,
       tempDirectory,

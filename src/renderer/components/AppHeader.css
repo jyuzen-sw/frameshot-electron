@@ -153,7 +153,8 @@
 .connection-dot.loading {
   background: var(--warning);
   box-shadow: 0 0 0 3px rgba(154, 98, 9, 0.1);
-  animation: connection-pulse 1s ease-in-out infinite;
+  animation: connection-pulse var(--loading-indicator-duration) ease-in-out infinite;
+  will-change: opacity, transform;
 }
 
 .url-form input {
@@ -248,10 +249,6 @@
   background: var(--accent-soft);
 }
 
-.spin {
-  animation: spin 0.85s linear infinite;
-}
-
 @keyframes connection-pulse {
   50% {
     opacity: 0.45;
@@ -291,8 +288,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .connection-dot.loading,
-  .spin {
-    animation-duration: 1ms;
+  .connection-dot.loading {
+    animation: none;
   }
 }

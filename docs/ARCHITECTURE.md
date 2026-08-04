@@ -12,7 +12,7 @@ DesktopのヘッダーリストはFull HD以下の5種とWQHD、UWQHD、4K UHD�
 
 共有プリセットは、解像度グループと完成サイズを持つ `DesktopResolutionPreset` と、機種グループと論理viewportを持つ `MobileDevicePreset` の判別可能なunionです。Desktopプリセットの選択判定は完成サイズだけを使い、余白、フレーム、URL表示の変更ではCustom扱いにしません。`CaptureSettings.phoneFrameVariant` は最後に選択したAndroid / iPhone外観を保持し、iPadやCustomを選んでも上書きしません。
 
-64pxのAppHeaderはブランド、ページ操作、プリセット、書き出し操作をまとめます。ブランド領域は通常の製品名と、処理中、完了、エラーを排他的に表示するHeaderFeedbackを兼ねます。通知はWebContentsViewのbounds外に置くため、対象ページを隠したり状態を失わせたりせずに表示できます。対象ページの読み込みエラーは成功したmain-frame遷移まで保持し、ヘッダーからキャッシュを無視して再試行できます。Electronのネイティブアプリケーションメニューは無効化します。保存、URLフォーカス、再読み込みのショートカットは、Main Processが対象ページ側の入力も捕捉して操作UIへ中継するため、どちらにフォーカスがあっても動作します。
+64pxのAppHeaderはブランド、ページ操作、プリセット、書き出し操作をまとめます。ブランド領域は通常の製品名と、処理中、完了、エラーを排他的に表示するHeaderFeedbackを兼ねます。通知はWebContentsViewのbounds外に置くため、対象ページを隠したり状態を失わせたりせずに表示できます。対象ページの読み込みエラーは成功したmain-frame遷移まで保持し、ヘッダーからキャッシュを無視して再試行できます。読み込み中は再読み込み操作を停止へ切り替え、URL欄から別URLを送信した場合は進行中の読み込みを中止して置き換えます。Electronのネイティブアプリケーションメニューは無効化します。保存、URLフォーカス、再読み込みのショートカットは、Main Processが対象ページ側の入力も捕捉して操作UIへ中継するため、どちらにフォーカスがあっても動作します。
 
 Browserフレームのアドレス表示は、現在URLを解析して `host[:port]` とpathnameだけをRendererへ描画します。queryとhashは表示から除外しますが、対象ビューのナビゲーションや書き出しが参照するURLは変更しません。
 
@@ -39,6 +39,8 @@ Browserフレームのアドレス表示は、現在URLを解析して `host[:po
 - `security.ts`: 対象sessionの権限、ダウンロード、証明書検証
 - `main-window-security.ts`: 操作UIのnavigation guardとdefault session保護
 - `ipc.ts`: main frame・信頼URLのsender照合と入力検証
+
+対象URLの`navigate` IPCは、入力検証と`WebContents.loadURL()`の開始後すぐに応答します。ページの完了、失敗、停止は`did-start-loading`、`did-stop-loading`、`did-fail-load`から生成する`NavigationState`通知を正本とし、RendererはIPC Promiseをネットワーク完了のロックとして使いません。利用者による停止と新しいURLによる置換では`WebContents.stop()`を使い、意図した`ERR_ABORTED`をページエラーとして表示しません。
 
 ## ライブプレビューの座標同期
 

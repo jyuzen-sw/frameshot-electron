@@ -14,6 +14,7 @@ const api: FrameShotApi = {
   goBack: () => ipcRenderer.invoke(IPC.goBack),
   goForward: () => ipcRenderer.invoke(IPC.goForward),
   reload: (ignoreCache = false) => ipcRenderer.invoke(IPC.reload, ignoreCache),
+  stopNavigation: () => ipcRenderer.invoke(IPC.stopNavigation),
   setTargetLayout: (layout: TargetViewLayout) => {
     ipcRenderer.send(IPC.setLayout, layout);
   },

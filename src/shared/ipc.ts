@@ -3,6 +3,7 @@ export const IPC = {
   goBack: 'target:back',
   goForward: 'target:forward',
   reload: 'target:reload',
+  stopNavigation: 'target:stop-navigation',
   setLayout: 'target:set-layout',
   navigationState: 'target:navigation-state',
   appShortcut: 'app:shortcut',

@@ -30,6 +30,7 @@
   --success: #08775c;
   --danger: #bd3655;
   --warning: #9a6209;
+  --loading-indicator-duration: 1.6s;
   --shadow-soft: 0 10px 30px rgba(39, 48, 75, 0.1);
   --shadow-elevated: 0 20px 50px rgba(39, 48, 75, 0.16);
 }

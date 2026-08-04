@@ -123,6 +123,7 @@ function errorMessage(error: unknown): string {
 
 export function App(): React.JSX.Element {
   const urlInputRef = useRef<HTMLInputElement>(null);
+  const navigationRequestRef = useRef(0);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const settingsPanelRef = useRef<HTMLDivElement>(null);
   const [settings, setSettings] = useState<CaptureSettings>(restoreSettings);
@@ -136,7 +137,7 @@ export function App(): React.JSX.Element {
     useState<UserPreferences>(EMPTY_PREFERENCES);
   const [busy, setBusy] = useState<HeaderBusyAction>(null);
   const { notice, showNotice, dismissNotice } = useTransientNotice({
-    paused: busy !== null,
+    paused: busy !== null || navigation.isLoading,
   });
   const [floatingUi, setFloatingUi] = useState<FloatingUiState>(null);
   const [focusSizeRequest, setFocusSizeRequest] = useState(0);
@@ -222,21 +223,29 @@ export function App(): React.JSX.Element {
 
   const navigate = useCallback(async () => {
     if (!urlInput.trim() || busy) return;
-    setBusy('navigate');
+    const requestId = ++navigationRequestRef.current;
     try {
       const state = await window.frameShot.navigate(urlInput);
-      setNavigation(state);
+      if (requestId !== navigationRequestRef.current) return;
       setUrlInput(state.url);
     } catch (error) {
+      if (requestId !== navigationRequestRef.current) return;
       showError(error);
-    } finally {
-      setBusy(null);
     }
   }, [busy, setUrlInput, showError, urlInput]);
 
+  const stopNavigation = useCallback(async () => {
+    navigationRequestRef.current += 1;
+    try {
+      await window.frameShot.stopNavigation();
+    } catch (error) {
+      showError(error);
+    }
+  }, [showError]);
+
   const exportImage = useCallback(
     async (destination: ExportDestination) => {
-      if (!navigation.url || busy) return;
+      if (!navigation.url || navigation.isLoading || busy) return;
       let validatedSettings: CaptureSettings;
       try {
         validatedSettings = validateCaptureSettings(settings);
@@ -264,7 +273,14 @@ export function App(): React.JSX.Element {
         setBusy(null);
       }
     },
-    [busy, navigation.url, settings, showError, showNotice],
+    [
+      busy,
+      navigation.isLoading,
+      navigation.url,
+      settings,
+      showError,
+      showNotice,
+    ],
   );
 
   const selectDevicePreset = useCallback(
@@ -320,7 +336,7 @@ export function App(): React.JSX.Element {
 
   const setCertificateAllowed = useCallback(
     async (allowed: boolean) => {
-      if (!currentHost || busy) return;
+      if (!currentHost || navigation.isLoading || busy) return;
       setBusy('session');
       try {
         const next = await window.frameShot.setCertificateAllowed(
@@ -345,12 +361,20 @@ export function App(): React.JSX.Element {
         setBusy(null);
       }
     },
-    [busy, certificateAllowed, currentHost, showError, showNotice],
+    [
+      busy,
+      certificateAllowed,
+      currentHost,
+      navigation.isLoading,
+      showError,
+      showNotice,
+    ],
   );
 
   const resetSession = useCallback(async () => {
     if (
       busy ||
+      navigation.isLoading ||
       !window.confirm(
         '対象ページのCookie、LocalStorage、キャッシュを削除します。続けますか？',
       )
@@ -369,7 +393,7 @@ export function App(): React.JSX.Element {
     } finally {
       setBusy(null);
     }
-  }, [busy, showError, showNotice]);
+  }, [busy, navigation.isLoading, showError, showNotice]);
 
   const runAppShortcut = useCallback(
     (shortcut: AppShortcut) => {
@@ -380,11 +404,16 @@ export function App(): React.JSX.Element {
         urlInputRef.current?.focus();
         urlInputRef.current?.select();
       }
-      if (shortcut === 'reload-target' && navigation.url && !busy) {
+      if (
+        shortcut === 'reload-target' &&
+        navigation.url &&
+        !navigation.isLoading &&
+        !busy
+      ) {
         void window.frameShot.reload(false);
       }
     },
-    [busy, exportImage, navigation.url],
+    [busy, exportImage, navigation.isLoading, navigation.url],
   );
 
   useEffect(
@@ -454,6 +483,7 @@ export function App(): React.JSX.Element {
         onBack={() => void window.frameShot.goBack()}
         onForward={() => void window.frameShot.goForward()}
         onReload={() => void window.frameShot.reload(false)}
+        onStop={() => void stopNavigation()}
         onNavigationRetry={() => void window.frameShot.reload(true)}
         onNoticeDismiss={dismissNotice}
         onDevicePreset={selectDevicePreset}
