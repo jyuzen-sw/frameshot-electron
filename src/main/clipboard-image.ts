@@ -1,20 +1,5 @@
 import os from 'node:os';
 
-export interface ClipboardImage {
-  isEmpty(): boolean;
-  getSize(): {
-    width: number;
-    height: number;
-  };
-}
-
-export interface ImageClipboardAdapter<
-  TImage extends ClipboardImage,
-> {
-  writeImage(image: TImage): void;
-  readImage(): TImage;
-}
-
 export interface RuntimeEnvironment {
   platform: NodeJS.Platform;
   environment: NodeJS.ProcessEnv;
@@ -46,30 +31,5 @@ export function assertImageClipboardSupported(
 ): void {
   if (isWslRuntime(runtime)) {
     throw new Error(WSL_CLIPBOARD_ERROR);
-  }
-}
-
-export function writeVerifiedClipboardImage<
-  TImage extends ClipboardImage,
->(
-  adapter: ImageClipboardAdapter<TImage>,
-  image: TImage,
-): void {
-  const expectedSize = image.getSize();
-  adapter.writeImage(image);
-  const copiedImage = adapter.readImage();
-  const actualSize = copiedImage.getSize();
-
-  if (
-    copiedImage.isEmpty() ||
-    actualSize.width !== expectedSize.width ||
-    actualSize.height !== expectedSize.height
-  ) {
-    const actual = copiedImage.isEmpty()
-      ? '空の画像'
-      : `${actualSize.width}x${actualSize.height}`;
-    throw new Error(
-      `クリップボードへの画像コピーを確認できませんでした。期待: ${expectedSize.width}x${expectedSize.height}、実際: ${actual}`,
-    );
   }
 }
