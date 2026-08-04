@@ -12,6 +12,7 @@ import { normalizeCaptureGeometry } from './layout';
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 export const MAX_CAPTURE_PIXELS = 8_294_400;
+export const MAX_CAPTURE_MARGIN = 420;
 
 function finiteNumber(value: unknown, name: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -107,7 +108,7 @@ export function validateCaptureSettings(value: unknown): CaptureSettings {
     deviceMode: parsedDeviceMode,
     frameStyle: frameStyle(input.frameStyle),
     phoneFrameVariant: phoneFrameVariant(input.phoneFrameVariant),
-    margin: boundedInteger(input.margin, '余白', 0, 2000),
+    margin: boundedInteger(input.margin, '余白', 0, MAX_CAPTURE_MARGIN),
     cornerRadius: boundedInteger(input.cornerRadius, '角丸', 0, 160),
     shadow: boundedInteger(input.shadow, '影', 0, 100),
     gradientFrom: hexColor(input.gradientFrom, 'グラデーション開始色'),

@@ -5,7 +5,10 @@ import type {
   CaptureSettings,
   FrameStyle,
 } from '@shared/types';
-import { validateCaptureSettings } from '@shared/validation';
+import {
+  MAX_CAPTURE_MARGIN,
+  validateCaptureSettings,
+} from '@shared/validation';
 import {
   AlertIcon,
   CheckIcon,
@@ -69,8 +72,10 @@ function NumberField({
   }, [value]);
 
   const commit = () => {
-    const next = Number(draft);
+    const normalizedDraft = draft.trim();
+    const next = Number(normalizedDraft);
     if (
+      normalizedDraft === '' ||
       !Number.isFinite(next) ||
       !Number.isInteger(next) ||
       !onChange(next)
@@ -172,6 +177,8 @@ export function SettingsPanel({
   onOpenDevTools,
 }: SettingsPanelProps): React.JSX.Element {
   const webViewWidthRef = useRef<HTMLInputElement>(null);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const plannedExport = calculateCompositionLayout(settings).artboard;
   const mobileOutput = settings.deviceMode === 'mobile';
@@ -196,10 +203,13 @@ export function SettingsPanel({
   const changeSettings = (
     update: React.SetStateAction<CaptureSettings>,
   ): boolean => {
+    const currentSettings = settingsRef.current;
     const candidate =
-      typeof update === 'function' ? update(settings) : update;
+      typeof update === 'function' ? update(currentSettings) : update;
     try {
-      onSettingsChange(validateCaptureSettings(candidate));
+      const validated = validateCaptureSettings(candidate);
+      settingsRef.current = validated;
+      onSettingsChange(validated);
       setSettingsError(null);
       return true;
     } catch (error) {
@@ -223,8 +233,10 @@ export function SettingsPanel({
     patch(mobileOutput ? 'viewportHeight' : 'outputHeight', value);
 
   const setMargin = (value: number): boolean => {
-    if (value < 0 || value > 420) {
-      setSettingsError('余白は0〜420の範囲で指定してください。');
+    if (value < 0 || value > MAX_CAPTURE_MARGIN) {
+      setSettingsError(
+        `余白は0〜${MAX_CAPTURE_MARGIN}の範囲で指定してください。`,
+      );
       return false;
     }
     return patch('margin', value);
@@ -286,7 +298,7 @@ export function SettingsPanel({
                 </button>
               ))}
             </div>
-            <NumberField ariaLabel="余白 Custom" label="Custom" value={settings.margin} min={0} max={420} suffix="px" onChange={setMargin} />
+            <NumberField ariaLabel="余白 Custom" label="Custom" value={settings.margin} min={0} max={MAX_CAPTURE_MARGIN} suffix="px" onChange={setMargin} />
           </div>
           {settingsError && <p className="settings-error" role="alert">{settingsError}</p>}
         </section>

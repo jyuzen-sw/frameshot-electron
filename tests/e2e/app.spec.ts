@@ -2440,7 +2440,66 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       )
       .toBe(true);
     await cdp.evaluate(`
-      document.querySelector('button[aria-label="余白 16px"]')?.click()
+      (() => {
+        const input = document.querySelector(
+          'input[aria-label="余白 Custom"]',
+        );
+        if (!(input instanceof HTMLInputElement)) {
+          throw new Error('The custom margin input was not found.');
+        }
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          'value',
+        )?.set;
+        input.focus();
+        setter?.call(input, '');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()
+    `);
+    await cdp.evaluate(`
+      document.querySelector('input[aria-label="余白 Custom"]')?.blur()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v6'),
+              );
+              const input = document.querySelector(
+                'input[aria-label="余白 Custom"]',
+              );
+              return settings.margin === 32 &&
+                settings.outputWidth === 840 &&
+                settings.outputHeight === 1736 &&
+                input instanceof HTMLInputElement &&
+                input.value === '32';
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      (() => {
+        const margin = document.querySelector(
+          'button[aria-label="余白 16px"]',
+        );
+        const noFrame = Array.from(
+          document.querySelectorAll('.frame-selector button'),
+        ).find(
+          (button) =>
+            button.querySelector('span:last-child')?.textContent === 'None',
+        );
+        if (
+          !(margin instanceof HTMLButtonElement) ||
+          !(noFrame instanceof HTMLButtonElement)
+        ) {
+          throw new Error('The consecutive settings actions were not found.');
+        }
+        margin.click();
+        noFrame.click();
+      })()
     `);
     await expect
       .poll(
@@ -2453,11 +2512,41 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
               return settings.viewportWidth === 360 &&
                 settings.viewportHeight === 808 &&
                 settings.margin === 16 &&
-                settings.outputWidth === 808 &&
-                settings.outputHeight === 1704 &&
+                settings.frameStyle === 'none' &&
+                settings.outputWidth === 752 &&
+                settings.outputHeight === 1648 &&
                 document.querySelector(
                   'button[aria-label="余白 16px"]',
                 )?.getAttribute('aria-pressed') === 'true';
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      (() => {
+        const phone = Array.from(
+          document.querySelectorAll('.frame-selector button'),
+        ).find((button) => button.textContent?.trim() === 'Phone');
+        if (!(phone instanceof HTMLButtonElement)) {
+          throw new Error('The Phone frame action was not found.');
+        }
+        phone.click();
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v6'),
+              );
+              return settings.margin === 16 &&
+                settings.frameStyle === 'phone' &&
+                settings.phoneFrameVariant === 'android' &&
+                settings.outputWidth === 808 &&
+                settings.outputHeight === 1704;
             })()
           `),
         { timeout: 5_000 },

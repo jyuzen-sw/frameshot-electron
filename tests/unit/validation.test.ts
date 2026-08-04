@@ -5,6 +5,7 @@ import {
   applyDevicePreset,
 } from '@shared/presets';
 import {
+  MAX_CAPTURE_MARGIN,
   MAX_CAPTURE_PIXELS,
   validateCaptureSettings,
   validateTargetViewLayout,
@@ -95,6 +96,15 @@ describe('capture settings validation', () => {
         viewportHeight: 5000,
       }),
     ).toThrow('Webビューサイズ 高さ');
+  });
+
+  it('rejects margins outside the settings control range', () => {
+    expect(() =>
+      validateCaptureSettings({
+        ...DEFAULT_SETTINGS,
+        margin: MAX_CAPTURE_MARGIN + 1,
+      }),
+    ).toThrow(`余白は0〜${MAX_CAPTURE_MARGIN}の範囲で指定してください。`);
   });
 
   it.each([
