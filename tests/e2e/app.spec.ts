@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import { createServer, type Server } from 'node:http';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
@@ -299,20 +300,15 @@ function packagedExecutable(): string {
 }
 
 function developmentElectronExecutable(): string {
-  const base = path.resolve('node_modules', 'electron', 'dist');
-  if (process.platform === 'win32') {
-    return path.join(base, 'electron.exe');
+  // Electron 43 installs its platform binary lazily, so the dist path may not
+  // exist after a clean npm install until the package entry point is loaded.
+  const executable = createRequire(path.resolve('package.json'))(
+    'electron',
+  ) as unknown;
+  if (typeof executable !== 'string') {
+    throw new Error('Electron development executable could not be resolved.');
   }
-  if (process.platform === 'darwin') {
-    return path.join(
-      base,
-      'Electron.app',
-      'Contents',
-      'MacOS',
-      'Electron',
-    );
-  }
-  return path.join(base, 'electron');
+  return executable;
 }
 
 async function probeClipboardImage(
