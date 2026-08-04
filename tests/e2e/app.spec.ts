@@ -43,6 +43,7 @@ interface FixtureRequest {
 interface FixtureServer {
   failedPaths: Set<string>;
   hangingPaths: Set<string>;
+  uncommittedPaths: Set<string>;
   requests: FixtureRequest[];
   server: Server;
   url: string;
@@ -971,6 +972,7 @@ async function startFixtureServer(): Promise<FixtureServer> {
   logE2e('Starting the local fixture server.');
   const failedPaths = new Set<string>();
   const hangingPaths = new Set<string>();
+  const uncommittedPaths = new Set<string>();
   const requests: FixtureRequest[] = [];
   const server = createServer((request, response) => {
     const cacheControl = request.headers['cache-control'];
@@ -987,6 +989,9 @@ async function startFixtureServer(): Promise<FixtureServer> {
     );
     if (failedPaths.has(request.url ?? '') && !bypassesCache) {
       request.socket.destroy();
+      return;
+    }
+    if (uncommittedPaths.has(request.url ?? '')) {
       return;
     }
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -1079,6 +1084,7 @@ async function startFixtureServer(): Promise<FixtureServer> {
   return {
     failedPaths,
     hangingPaths,
+    uncommittedPaths,
     requests,
     server,
     url: `http://127.0.0.1:${address.port}`,
@@ -3616,6 +3622,35 @@ test('stops and replaces a stalled target navigation', async () => {
   try {
     app = await launchPackagedApp(tempDirectory);
     await waitForMainUi(app.cdp);
+
+    const uncommittedPath = '/stalled-before-commit';
+    const uncommittedUrl = `${fixture.url}${uncommittedPath}`;
+    fixture.uncommittedPaths.add(uncommittedPath);
+    await navigateFromMainUi(app.cdp, uncommittedUrl);
+    await expect
+      .poll(
+        () =>
+          app?.cdp.evaluate<boolean>(`
+            document.querySelector('button[aria-label="読み込みを中止"]') instanceof HTMLButtonElement
+          `) ?? false,
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await app.cdp.evaluate(`
+      document.querySelector(
+        'button[aria-label="読み込みを中止"]',
+      )?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          app?.cdp.evaluate<string>(`
+            document.querySelector('input[aria-label="URL"]')?.value ?? ''
+          `) ?? '',
+        { timeout: 5_000 },
+      )
+      .toBe(uncommittedUrl);
+
     await navigateFromMainUi(app.cdp, fixture.url);
     await waitForMainText(app.cdp, 'FrameShot fixture — WebGL2 ready');
 

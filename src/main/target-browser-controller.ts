@@ -723,10 +723,12 @@ export class TargetBrowserController {
   ): void {
     const webContents = this.view.webContents;
     const isLoading = loadingOverride ?? webContents.isLoading();
+    const currentUrl = webContents.getURL();
+    const committedUrl = currentUrl === 'about:blank' ? '' : currentUrl;
     this.state = {
       url:
         clearError || !isLoading
-          ? webContents.getURL() || this.state.url
+          ? committedUrl || this.state.url
           : this.state.url,
       title: webContents.getTitle() || '',
       isLoading,
