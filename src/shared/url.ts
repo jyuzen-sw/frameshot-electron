@@ -69,7 +69,7 @@ export function formatUrlForFrame(value: string): string {
   try {
     const parsed = new URL(value);
     const path = parsed.pathname === '/' ? '' : parsed.pathname;
-    return `${parsed.host}${path}${parsed.search}`;
+    return `${parsed.host}${path}`;
   } catch {
     return value;
   }

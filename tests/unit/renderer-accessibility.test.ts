@@ -40,7 +40,6 @@ describe('renderer selection accessibility', () => {
         currentHost: null,
         certificateAllowed: false,
         focusSizeRequest: 0,
-        focusSizeTarget: 'page',
         onClose: vi.fn(),
         onSettingsChange,
         onCertificateAllowed: vi.fn(),
@@ -61,14 +60,21 @@ describe('renderer selection accessibility', () => {
     expect(buttonMarkup(markup, 'None')).toContain(
       'aria-pressed="false"',
     );
-    expect(markup).toContain('スクリーンショットサイズ');
+    expect(markup).toContain('Webビューサイズ');
     expect(markup).toContain(
-      '背景・余白・フレームを含む画像全体の最大サイズと縦横比',
+      'フレームと余白を含む完成画像のサイズ。ページviewportは自動計算します',
     );
-    expect(markup).toContain('ページ表示サイズ');
-    expect(markup).toContain('aria-label="スクリーンショットサイズ 幅"');
-    expect(markup).toContain('aria-label="ページ表示サイズ 幅"');
-    expect(markup).toContain('書き出し予定 1920 × 1048');
+    expect(markup).toContain('aria-label="Webビューサイズ 幅"');
+    expect(markup).not.toContain('スクリーンショットサイズ');
+    expect(markup).not.toContain('ページ表示サイズ');
+    expect(markup).toContain('aria-label="余白プリセット"');
+    expect(buttonMarkup(markup, '余白 32px')).toContain(
+      'aria-pressed="true"',
+    );
+    expect(labelledControlMarkup(markup, '余白 Custom')).toContain(
+      'max="420"',
+    );
+    expect(markup).toContain('書き出し予定 1920 × 1080');
   });
 
   it('uses a single labelled radio group for viewport choices', () => {
@@ -91,7 +97,7 @@ describe('renderer selection accessibility', () => {
 
     expect(markup.match(/role="menuitemradio"/g)).toHaveLength(7);
     expect(markup).toContain(
-      'aria-label="Phone ページ表示サイズプリセット"',
+      'aria-label="Phone Webビューサイズプリセット"',
     );
     expect(buttonMarkup(markup, 'iPad Pro 12.9″')).toContain(
       'aria-checked="true"',
@@ -114,7 +120,7 @@ describe('renderer selection accessibility', () => {
     expect(markup).not.toContain('aria-label="選択中"');
   });
 
-  it('presents mobile output size as automatic and keeps page size editable', () => {
+  it('presents one editable mobile Web view size and its derived output', () => {
     const settings = applyDevicePreset(
       DEFAULT_SETTINGS,
       MOBILE_DEVICE_PRESETS.find((preset) => preset.id === 'iphone-17')!,
@@ -125,7 +131,6 @@ describe('renderer selection accessibility', () => {
         currentHost: null,
         certificateAllowed: false,
         focusSizeRequest: 0,
-        focusSizeTarget: 'page',
         onClose: vi.fn(),
         onSettingsChange: vi.fn(),
         onCertificateAllowed: vi.fn(),
@@ -134,24 +139,21 @@ describe('renderer selection accessibility', () => {
       }),
     );
 
-    expect(markup).toContain('<em>AUTO</em>');
+    expect(markup).toContain('<em>mobile</em>');
     expect(markup).toContain(
-      'ページ・端末フレーム・余白を2×で書き出すサイズ',
+      'Webページの論理viewport。端末フレームと余白は書き出し時に自動加算します',
     );
     expect(
-      labelledControlMarkup(markup, 'スクリーンショットサイズ 幅'),
-    ).toContain('readOnly=""');
-    expect(
-      labelledControlMarkup(markup, 'ページ表示サイズ 幅'),
+      labelledControlMarkup(markup, 'Webビューサイズ 幅'),
     ).not.toContain('readonly');
-    expect(markup).not.toContain('>16:9</button>');
+    expect(markup.match(/aria-label="Webビューサイズ 幅"/g)).toHaveLength(1);
     expect(markup).toContain('書き出し予定 924 × 1868');
     expect(markup).toContain(
       '<select disabled=""><option value="1">1× 標準</option><option value="2" selected="">2× 高精細</option></select>',
     );
   });
 
-  it('presents desktop choices as screenshot resolutions with page sizes', () => {
+  it('groups Full HD and lower desktop choices separately from high resolutions', () => {
     const markup = renderToStaticMarkup(
       createElement(ViewportMenuList, {
         deviceMode: 'desktop',
@@ -162,20 +164,24 @@ describe('renderer selection accessibility', () => {
       }),
     );
 
-    expect(markup.match(/role="menuitemradio"/g)).toHaveLength(5);
+    expect(markup.match(/role="menuitemradio"/g)).toHaveLength(9);
     expect(markup).toContain(
-      'aria-label="Desktop スクリーンショットサイズプリセット"',
+      'aria-label="Desktop Webビューサイズプリセット"',
     );
     expect(markup).toContain(
-      'id="viewport-desktop-resolution-heading">画面解像度</span>',
+      'id="viewport-desktop-full-hd-and-below-heading">Full HD以下</span>',
+    );
+    expect(markup).toContain(
+      'id="viewport-desktop-high-resolution-heading">高解像度</span>',
     );
     expect(buttonMarkup(markup, 'Full HD')).toContain(
-      '1920 × 1080 · ページ表示サイズ 1856 × 958',
+      '1920 × 1080',
     );
     expect(buttonMarkup(markup, 'Full HD')).toContain(
       'aria-checked="true"',
     );
-    expect(markup).not.toContain('<b>Desktop</b>');
+    expect(buttonMarkup(markup, 'Desktop')).toContain('1440 × 900');
+    expect(buttonMarkup(markup, '<b>HD</b>')).toContain('1280 × 720');
   });
 
   it('offers all ten background swatches and the fluid style selector', () => {
@@ -194,7 +200,6 @@ describe('renderer selection accessibility', () => {
         currentHost: null,
         certificateAllowed: false,
         focusSizeRequest: 0,
-        focusSizeTarget: 'page',
         onClose: vi.fn(),
         onSettingsChange,
         onCertificateAllowed: vi.fn(),
@@ -235,7 +240,6 @@ describe('renderer selection accessibility', () => {
         currentHost: null,
         certificateAllowed: false,
         focusSizeRequest: 0,
-        focusSizeTarget: 'page',
         onClose: vi.fn(),
         onSettingsChange,
         onCertificateAllowed: vi.fn(),

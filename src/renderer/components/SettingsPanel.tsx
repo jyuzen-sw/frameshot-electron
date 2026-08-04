@@ -1,13 +1,14 @@
-import { useEffect, useRef, type Ref } from 'react';
-import {
-  calculateCompositionLayout,
-  normalizeMobileOutput,
-} from '@shared/layout';
+import { useEffect, useRef, useState, type Ref } from 'react';
+import { calculateCompositionLayout } from '@shared/layout';
 import { GRADIENT_PRESETS } from '@shared/presets';
 import type {
   CaptureSettings,
   FrameStyle,
 } from '@shared/types';
+import {
+  MAX_CAPTURE_MARGIN,
+  validateCaptureSettings,
+} from '@shared/validation';
 import {
   AlertIcon,
   CheckIcon,
@@ -32,7 +33,6 @@ interface SettingsPanelProps {
   currentHost: string | null;
   certificateAllowed: boolean;
   focusSizeRequest: number;
-  focusSizeTarget: SizeFocusTarget;
   onClose: () => void;
   onSettingsChange: React.Dispatch<React.SetStateAction<CaptureSettings>>;
   onCertificateAllowed: (allowed: boolean) => void;
@@ -40,7 +40,7 @@ interface SettingsPanelProps {
   onOpenDevTools: () => void;
 }
 
-export type SizeFocusTarget = 'screenshot' | 'page';
+const MARGIN_PRESETS = [8, 16, 24, 32] as const;
 
 interface NumberFieldProps {
   label: string;
@@ -50,9 +50,8 @@ interface NumberFieldProps {
   max: number;
   step?: number;
   suffix?: string;
-  readOnly?: boolean;
   inputRef?: Ref<HTMLInputElement>;
-  onChange: (value: number) => void;
+  onChange: (value: number) => boolean;
 }
 
 function NumberField({
@@ -63,10 +62,28 @@ function NumberField({
   max,
   step = 1,
   suffix,
-  readOnly = false,
   inputRef,
   onChange,
 }: NumberFieldProps): React.JSX.Element {
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  const commit = () => {
+    const normalizedDraft = draft.trim();
+    const next = Number(normalizedDraft);
+    if (
+      normalizedDraft === '' ||
+      !Number.isFinite(next) ||
+      !Number.isInteger(next) ||
+      !onChange(next)
+    ) {
+      setDraft(String(value));
+    }
+  };
+
   return (
     <label className="number-field">
       <span>{label}</span>
@@ -75,14 +92,20 @@ function NumberField({
           ref={inputRef}
           aria-label={ariaLabel}
           type="number"
-          value={value}
+          value={draft}
           min={min}
           max={max}
           step={step}
-          readOnly={readOnly}
-          onChange={(event) => {
-            const next = Number(event.target.value);
-            if (Number.isFinite(next)) onChange(next);
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.currentTarget.blur();
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              setDraft(String(value));
+            }
           }}
         />
         {suffix && <em>{suffix}</em>}
@@ -147,46 +170,77 @@ export function SettingsPanel({
   currentHost,
   certificateAllowed,
   focusSizeRequest,
-  focusSizeTarget,
   onClose,
   onSettingsChange,
   onCertificateAllowed,
   onResetSession,
   onOpenDevTools,
 }: SettingsPanelProps): React.JSX.Element {
-  const screenshotWidthRef = useRef<HTMLInputElement>(null);
-  const viewportWidthRef = useRef<HTMLInputElement>(null);
+  const webViewWidthRef = useRef<HTMLInputElement>(null);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const plannedExport = calculateCompositionLayout(settings).artboard;
   const mobileOutput = settings.deviceMode === 'mobile';
+  const webViewWidth = mobileOutput
+    ? settings.viewportWidth
+    : settings.outputWidth;
+  const webViewHeight = mobileOutput
+    ? settings.viewportHeight
+    : settings.outputHeight;
 
   useEffect(() => {
     if (focusSizeRequest === 0) return;
-    const field =
-      focusSizeTarget === 'screenshot'
-        ? screenshotWidthRef.current
-        : viewportWidthRef.current;
+    const field = webViewWidthRef.current;
     field?.scrollIntoView({
       block: 'center',
       behavior: 'smooth',
     });
     field?.focus({ preventScroll: true });
     field?.select();
-  }, [focusSizeRequest, focusSizeTarget]);
+  }, [focusSizeRequest]);
 
   const changeSettings = (
     update: React.SetStateAction<CaptureSettings>,
-  ) => {
-    onSettingsChange((current) =>
-      normalizeMobileOutput(
-        typeof update === 'function' ? update(current) : update,
-      ),
-    );
+  ): boolean => {
+    const currentSettings = settingsRef.current;
+    const candidate =
+      typeof update === 'function' ? update(currentSettings) : update;
+    try {
+      const validated = validateCaptureSettings(candidate);
+      settingsRef.current = validated;
+      onSettingsChange(validated);
+      setSettingsError(null);
+      return true;
+    } catch (error) {
+      setSettingsError(
+        error instanceof Error ? error.message : String(error),
+      );
+      return false;
+    }
   };
 
   const patch = <K extends keyof CaptureSettings>(
     key: K,
     value: CaptureSettings[K],
-  ) => changeSettings((current) => ({ ...current, [key]: value }));
+  ): boolean =>
+    changeSettings((current) => ({ ...current, [key]: value }));
+
+  const setWebViewWidth = (value: number): boolean =>
+    patch(mobileOutput ? 'viewportWidth' : 'outputWidth', value);
+
+  const setWebViewHeight = (value: number): boolean =>
+    patch(mobileOutput ? 'viewportHeight' : 'outputHeight', value);
+
+  const setMargin = (value: number): boolean => {
+    if (value < 0 || value > MAX_CAPTURE_MARGIN) {
+      setSettingsError(
+        `余白は0〜${MAX_CAPTURE_MARGIN}の範囲で指定してください。`,
+      );
+      return false;
+    }
+    return patch('margin', value);
+  };
 
   const setFrame = (frameStyle: FrameStyle) => {
     changeSettings((current) => ({
@@ -213,38 +267,40 @@ export function SettingsPanel({
 
       <div className="settings-scroll">
         <section className="settings-section">
-          <header><span>01</span><div><strong>サイズ</strong><small>スクリーンショット全体とWebページの表示サイズ</small></div></header>
-          <div className="subheading"><span>スクリーンショットサイズ</span><em>{mobileOutput ? 'AUTO' : 'MAX'}</em></div>
+          <header><span>01</span><div><strong>サイズ</strong><small>Webビューと完成画像の余白</small></div></header>
+          <div className="subheading"><span>Webビューサイズ</span><em>{settings.deviceMode}</em></div>
           <p className="size-description">
             {mobileOutput
-              ? 'ページ・端末フレーム・余白を2×で書き出すサイズ'
-              : '背景・余白・フレームを含む画像全体の最大サイズと縦横比'}
+              ? 'Webページの論理viewport。端末フレームと余白は書き出し時に自動加算します'
+              : 'フレームと余白を含む完成画像のサイズ。ページviewportは自動計算します'}
           </p>
           <div className="two-column-fields">
-            <NumberField inputRef={screenshotWidthRef} ariaLabel="スクリーンショットサイズ 幅" label="幅" value={settings.outputWidth} min={320} max={7680} suffix="px" readOnly={mobileOutput} onChange={(value) => patch('outputWidth', value)} />
-            <NumberField ariaLabel="スクリーンショットサイズ 高さ" label="高さ" value={settings.outputHeight} min={320} max={7680} suffix="px" readOnly={mobileOutput} onChange={(value) => patch('outputHeight', value)} />
+            <NumberField inputRef={webViewWidthRef} ariaLabel="Webビューサイズ 幅" label="幅" value={webViewWidth} min={mobileOutput ? 240 : 320} max={mobileOutput ? 3840 : 7680} suffix="px" onChange={setWebViewWidth} />
+            <NumberField ariaLabel="Webビューサイズ 高さ" label="高さ" value={webViewHeight} min={mobileOutput ? 240 : 320} max={mobileOutput ? 3840 : 7680} suffix="px" onChange={setWebViewHeight} />
           </div>
-          {!mobileOutput && (
-            <div className="quick-size-row">
-              {[
-                ['16:9', 1920, 1080],
-                ['4:5', 1080, 1350],
-                ['1:1', 1600, 1600],
-                ['OGP', 1200, 630],
-              ].map(([label, width, height]) => (
-                <button type="button" key={String(label)} onClick={() => changeSettings((current) => ({ ...current, outputWidth: Number(width), outputHeight: Number(height) }))}>{label}</button>
-              ))}
-            </div>
-          )}
           <output className="planned-export-size">
             書き出し予定 {plannedExport.width} × {plannedExport.height}
           </output>
 
-          <div className="subheading"><span>ページ表示サイズ</span><em>{settings.deviceMode}</em></div>
-          <div className="two-column-fields">
-            <NumberField inputRef={viewportWidthRef} ariaLabel="ページ表示サイズ 幅" label="幅" value={settings.viewportWidth} min={240} max={3840} suffix="px" onChange={(value) => patch('viewportWidth', value)} />
-            <NumberField ariaLabel="ページ表示サイズ 高さ" label="高さ" value={settings.viewportHeight} min={240} max={3840} suffix="px" onChange={(value) => patch('viewportHeight', value)} />
+          <div className="subheading"><span>余白</span><em>PNG PX</em></div>
+          <div className="margin-control">
+            <div className="margin-presets" role="group" aria-label="余白プリセット">
+              {MARGIN_PRESETS.map((margin) => (
+                <button
+                  type="button"
+                  key={margin}
+                  className={settings.margin === margin ? 'active' : ''}
+                  aria-label={`余白 ${margin}px`}
+                  aria-pressed={settings.margin === margin}
+                  onClick={() => setMargin(margin)}
+                >
+                  {margin}
+                </button>
+              ))}
+            </div>
+            <NumberField ariaLabel="余白 Custom" label="Custom" value={settings.margin} min={0} max={MAX_CAPTURE_MARGIN} suffix="px" onChange={setMargin} />
           </div>
+          {settingsError && <p className="settings-error" role="alert">{settingsError}</p>}
         </section>
 
         <section className="settings-section">
@@ -255,11 +311,10 @@ export function SettingsPanel({
             <button type="button" aria-pressed={settings.frameStyle === 'tablet'} className={settings.frameStyle === 'tablet' ? 'active' : ''} onClick={() => setFrame('tablet')}><span className="frame-tablet-icon" aria-hidden="true" /><span>Tablet</span></button>
             <button type="button" aria-pressed={settings.frameStyle === 'none'} className={settings.frameStyle === 'none' ? 'active' : ''} onClick={() => setFrame('none')}><span className="frame-none-icon">□</span><span>None</span></button>
           </div>
-          <RangeField label="背景とフレームの余白" value={settings.margin} min={0} max={420} suffix="px" onChange={(value) => patch('margin', value)} />
           <RangeField label="角丸" value={settings.cornerRadius} min={0} max={80} suffix="px" onChange={(value) => patch('cornerRadius', value)} />
           <RangeField label="影の強さ" value={settings.shadow} min={0} max={100} suffix="%" onChange={(value) => patch('shadow', value)} />
           {settings.frameStyle === 'browser' && (
-            <Toggle label="アドレスを表示" description="ブラウザ枠内にホスト名を表示" checked={settings.showUrl} onChange={(value) => patch('showUrl', value)} />
+            <Toggle label="アドレスを表示" description="ブラウザ枠内にホスト名とパスを表示" checked={settings.showUrl} onChange={(value) => patch('showUrl', value)} />
           )}
         </section>
 

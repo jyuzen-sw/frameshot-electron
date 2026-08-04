@@ -72,14 +72,30 @@ export function ViewportMenuList({
 }: ViewportMenuListProps): React.JSX.Element {
   const exactPreset = findDevicePreset(settings);
   const label = deviceMode === 'desktop' ? 'Desktop' : 'Phone';
-  const sizeLabel =
-    deviceMode === 'desktop'
-      ? 'スクリーンショットサイズ'
-      : 'ページ表示サイズ';
+  const sizeLabel = 'Webビューサイズ';
   const presets = devicePresetsFor(deviceMode);
   const presetGroups: readonly PresetGroup[] =
     deviceMode === 'desktop'
-      ? [{ id: 'resolution', label: '画面解像度', presets }]
+      ? [
+          {
+            id: 'full-hd-and-below',
+            label: 'Full HD以下',
+            presets: presets.filter(
+              (preset) =>
+                preset.kind === 'desktop' &&
+                preset.group === 'full-hd-and-below',
+            ),
+          },
+          {
+            id: 'high-resolution',
+            label: '高解像度',
+            presets: presets.filter(
+              (preset) =>
+                preset.kind === 'desktop' &&
+                preset.group === 'high-resolution',
+            ),
+          },
+        ]
       : [
           {
             id: 'android',
@@ -152,7 +168,7 @@ export function ViewportMenuList({
                     <b>{preset.name}</b>
                     <small>
                       {preset.kind === 'desktop'
-                        ? `${preset.outputWidth} × ${preset.outputHeight} · ページ表示サイズ ${preset.viewportWidth} × ${preset.viewportHeight}`
+                        ? `${preset.outputWidth} × ${preset.outputHeight}`
                         : `${preset.viewportWidth} × ${preset.viewportHeight}`}
                     </small>
                   </span>
@@ -181,11 +197,7 @@ export function ViewportMenuList({
       >
         <span>
           <b>Custom…</b>
-          <small>
-            {deviceMode === 'desktop'
-              ? 'スクリーンショットサイズを入力'
-              : 'ページ表示サイズを入力'}
-          </small>
+          <small>Webビューサイズを入力</small>
         </span>
         {settings.deviceMode === deviceMode && !exactPreset && (
           <i aria-hidden="true">✓</i>
@@ -330,7 +342,7 @@ export function ViewportMenu({
     <div
       className="toolbar-view-group"
       ref={viewportMenusRef}
-      aria-label="スクリーンショットサイズとページ表示サイズのプリセット"
+      aria-label="Webビューサイズプリセット"
     >
       {renderViewportMenu('desktop')}
       {renderViewportMenu('mobile')}

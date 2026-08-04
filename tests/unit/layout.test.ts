@@ -5,6 +5,7 @@ import {
   PHONE_BEZEL,
   calculateCompositionLayout,
   calculatePreviewCanvasSize,
+  normalizeCaptureGeometry,
   normalizeMobileOutput,
   roundRectangleEdges,
 } from '@shared/layout';
@@ -49,98 +50,75 @@ describe('calculateCompositionLayout', () => {
 
   it.each([
     {
-      name: 'landscape browser in a 16:9 output',
+      name: 'browser',
       outputWidth: 1920,
       outputHeight: 1080,
-      viewportWidth: 1440,
-      viewportHeight: 900,
+      expectedViewportWidth: 1856,
+      expectedViewportHeight: 958,
       frameStyle: 'browser' as const,
-      deviceMode: 'desktop' as const,
+      margin: 32,
     },
     {
-      name: 'wide page in a square output',
+      name: 'frame-free capture',
       outputWidth: 1200,
       outputHeight: 1200,
-      viewportWidth: 1600,
-      viewportHeight: 900,
+      expectedViewportWidth: 1136,
+      expectedViewportHeight: 1136,
       frameStyle: 'none' as const,
-      deviceMode: 'desktop' as const,
+      margin: 32,
     },
     {
-      name: 'phone page in a portrait output',
+      name: 'phone frame',
       outputWidth: 1080,
       outputHeight: 1350,
-      viewportWidth: 390,
-      viewportHeight: 844,
+      expectedViewportWidth: 938,
+      expectedViewportHeight: 1208,
       frameStyle: 'phone' as const,
-      deviceMode: 'mobile' as const,
+      margin: 57,
     },
     {
-      name: 'tablet page in a landscape output',
+      name: 'tablet frame',
       outputWidth: 1600,
       outputHeight: 900,
-      viewportWidth: 768,
-      viewportHeight: 1024,
+      expectedViewportWidth: 1480,
+      expectedViewportHeight: 780,
       frameStyle: 'tablet' as const,
-      deviceMode: 'mobile' as const,
+      margin: 32,
     },
   ])(
-    'centers the $name while preserving its ratio and minimum margin',
-    ({ name: _name, ...overrides }) => {
-      const settings = { ...DEFAULT_SETTINGS, ...overrides };
-      const layout = calculateCompositionLayout(settings);
-      const edges = {
-        left: layout.frame.x,
-        top: layout.frame.y,
-        right:
-          settings.outputWidth - layout.frame.x - layout.frame.width,
-        bottom:
-          settings.outputHeight - layout.frame.y - layout.frame.height,
-      };
-
-      expect(edges.left).toBeCloseTo(edges.right, 8);
-      expect(edges.top).toBeCloseTo(edges.bottom, 8);
-      expect(layout.screen.width / layout.screen.height).toBeCloseTo(
-        settings.viewportWidth / settings.viewportHeight,
-        8,
-      );
-      expect(layout.screen.width / settings.viewportWidth).toBeCloseTo(
-        layout.screen.height / settings.viewportHeight,
-        8,
-      );
-      for (const edge of Object.values(edges)) {
-        expect(edge).toBeGreaterThanOrEqual(settings.margin - 1e-8);
-      }
-      expect(Math.min(...Object.values(edges))).toBeCloseTo(
-        settings.margin,
-        8,
-      );
-
-      const expectedArtboard = roundRectangleEdges({
-        left: Math.max(0, layout.frame.x - settings.margin),
-        top: Math.max(0, layout.frame.y - settings.margin),
-        right: Math.min(
-          settings.outputWidth,
-          layout.frame.x + layout.frame.width + settings.margin,
-        ),
-        bottom: Math.min(
-          settings.outputHeight,
-          layout.frame.y + layout.frame.height + settings.margin,
-        ),
+    'derives the desktop viewport inside the $name and exact margin',
+    ({
+      name: _name,
+      expectedViewportWidth,
+      expectedViewportHeight,
+      ...overrides
+    }) => {
+      const settings = normalizeCaptureGeometry({
+        ...DEFAULT_SETTINGS,
+        ...overrides,
+        deviceMode: 'desktop',
       });
-      expect(layout.artboard).toEqual(expectedArtboard);
-      expect(Number.isInteger(layout.artboard.x)).toBe(true);
-      expect(Number.isInteger(layout.artboard.y)).toBe(true);
-      expect(Number.isInteger(layout.artboard.width)).toBe(true);
-      expect(Number.isInteger(layout.artboard.height)).toBe(true);
-      expect(layout.artboard.x).toBeGreaterThanOrEqual(0);
-      expect(layout.artboard.y).toBeGreaterThanOrEqual(0);
-      expect(layout.artboard.x + layout.artboard.width).toBeLessThanOrEqual(
-        settings.outputWidth,
-      );
-      expect(layout.artboard.y + layout.artboard.height).toBeLessThanOrEqual(
-        settings.outputHeight,
-      );
+      const layout = calculateCompositionLayout(settings);
+
+      expect(settings.viewportWidth).toBe(expectedViewportWidth);
+      expect(settings.viewportHeight).toBe(expectedViewportHeight);
+      expect(layout.scale).toBe(1);
+      expect(layout.artboard).toEqual({
+        x: 0,
+        y: 0,
+        width: settings.outputWidth,
+        height: settings.outputHeight,
+      });
+      expect(layout.frame.x).toBe(settings.margin);
+      expect(layout.frame.y).toBe(settings.margin);
+      expect(
+        settings.outputWidth - layout.frame.x - layout.frame.width,
+      ).toBe(settings.margin);
+      expect(
+        settings.outputHeight - layout.frame.y - layout.frame.height,
+      ).toBe(settings.margin);
+      expect(layout.screen.width).toBe(settings.viewportWidth);
+      expect(layout.screen.height).toBe(settings.viewportHeight);
     },
   );
 
@@ -179,22 +157,20 @@ describe('calculateCompositionLayout', () => {
     },
   );
 
-  it('clamps an oversized requested margin into the maximum canvas', () => {
-    const layout = calculateCompositionLayout({
+  it('recalculates the desktop viewport when its margin changes', () => {
+    const original = normalizeCaptureGeometry({
       ...DEFAULT_SETTINGS,
-      outputWidth: 320,
-      outputHeight: 320,
-      viewportWidth: 3840,
-      viewportHeight: 240,
-      frameStyle: 'none',
-      margin: 2_000,
+      margin: 32,
     });
+    const compact = normalizeCaptureGeometry({ ...original, margin: 16 });
 
-    expect(layout.artboard.x).toBeGreaterThanOrEqual(0);
-    expect(layout.artboard.y).toBeGreaterThanOrEqual(0);
-    expect(layout.artboard.x + layout.artboard.width).toBeLessThanOrEqual(320);
-    expect(layout.artboard.y + layout.artboard.height).toBeLessThanOrEqual(320);
-    expect(layout.artboard.width).toBe(320);
+    expect(compact).toMatchObject({
+      outputWidth: 1920,
+      outputHeight: 1080,
+      viewportWidth: 1888,
+      viewportHeight: 990,
+      margin: 16,
+    });
   });
 
   it('keeps the browser controls inside the fitted frame', () => {
@@ -273,6 +249,27 @@ describe('calculateCompositionLayout', () => {
       });
     },
   );
+
+  it('keeps mobile margin values in final PNG pixels', () => {
+    const settings = normalizeCaptureGeometry({
+      ...DEFAULT_SETTINGS,
+      deviceMode: 'mobile',
+      frameStyle: 'phone',
+      viewportWidth: 402,
+      viewportHeight: 874,
+      margin: 16,
+    });
+
+    expect(settings).toMatchObject({
+      outputWidth: 892,
+      outputHeight: 1836,
+      viewportWidth: 402,
+      viewportHeight: 874,
+      margin: 16,
+      captureScale: 2,
+    });
+    expect(calculateCompositionLayout(settings).frame.x).toBe(16);
+  });
 
   it('rounds opposing viewport edges without shifting the far edges', () => {
     const bounds = roundRectangleEdges({

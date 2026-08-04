@@ -1357,7 +1357,7 @@ async function expectPreviewArtboard(
   expectedFrameStyle: CaptureSettings['frameStyle'],
 ): Promise<void> {
   const settings = await cdp.evaluate<CaptureSettings>(`
-    JSON.parse(localStorage.getItem('frameshot:settings:v5'))
+    JSON.parse(localStorage.getItem('frameshot:settings:v6'))
   `);
   const geometry = await readStudioGeometry(cdp);
   const surface = await cdp.evaluate<{
@@ -1969,6 +1969,29 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       loadedStudioGeometry,
     );
 
+    await targetPage.evaluate(`
+      history.replaceState(
+        null,
+        '',
+        ${JSON.stringify(`${retryablePath}?token=private#details`)},
+      )
+    `);
+    const expectedFrameAddress = `${new URL(fixture.url).host}${retryablePath}`;
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<string>(`
+            document.querySelector('.composition-address')?.textContent ?? ''
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(expectedFrameAddress);
+    expect(
+      await targetPage.evaluate<string>(
+        `location.pathname + location.search + location.hash`,
+      ),
+    ).toBe(`${retryablePath}?token=private#details`);
+
     const addressCenterDelta = await cdp.evaluate<{ x: number; y: number }>(`
       (() => {
         const bar = document.querySelector('.composition-browser-bar');
@@ -2006,7 +2029,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     expect(exportActionsReady).toBe(true);
 
     const baselineSettings = await cdp.evaluate<Record<string, unknown>>(`
-      JSON.parse(localStorage.getItem('frameshot:settings:v5'))
+      JSON.parse(localStorage.getItem('frameshot:settings:v6'))
     `);
     await targetPage.evaluate(`
       document.body.dataset.frameshotMenuState = 'preserved'
@@ -2292,7 +2315,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v5'),
+                localStorage.getItem('frameshot:settings:v6'),
               );
               return settings.deviceMode === 'mobile' &&
                 settings.viewportWidth === 360 &&
@@ -2329,7 +2352,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       ),
     ).toBe('preserved');
     const mobileSettings = await cdp.evaluate<Record<string, unknown>>(`
-      JSON.parse(localStorage.getItem('frameshot:settings:v5'))
+      JSON.parse(localStorage.getItem('frameshot:settings:v6'))
     `);
     expect(mobileSettings).toMatchObject({
       deviceMode: 'mobile',
@@ -2374,29 +2397,175 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const width = document.querySelector(
-                'input[aria-label="スクリーンショットサイズ 幅"]',
+                'input[aria-label="Webビューサイズ 幅"]',
               );
               const height = document.querySelector(
-                'input[aria-label="スクリーンショットサイズ 高さ"]',
+                'input[aria-label="Webビューサイズ 高さ"]',
               );
-              const pageWidth = document.querySelector(
-                'input[aria-label="ページ表示サイズ 幅"]',
+              const margin = document.querySelector(
+                'input[aria-label="余白 Custom"]',
+              );
+              const selectedMargin = document.querySelector(
+                'button[aria-label="余白 32px"]',
               );
               const quality = document.querySelector(
                 '.capture-options-row select',
               );
               return width instanceof HTMLInputElement &&
                 height instanceof HTMLInputElement &&
-                pageWidth instanceof HTMLInputElement &&
+                margin instanceof HTMLInputElement &&
+                selectedMargin instanceof HTMLButtonElement &&
                 quality instanceof HTMLSelectElement &&
-                width.readOnly &&
-                height.readOnly &&
-                !pageWidth.readOnly &&
+                !width.readOnly &&
+                !height.readOnly &&
+                width.value === '360' &&
+                height.value === '808' &&
+                margin.value === '32' &&
+                margin.max === '420' &&
+                selectedMargin.getAttribute('aria-pressed') === 'true' &&
                 quality.disabled &&
                 quality.value === '2' &&
                 document.querySelector('.quick-size-row') === null &&
+                document.querySelector(
+                  'input[aria-label="スクリーンショットサイズ 幅"]',
+                ) === null &&
+                document.querySelector(
+                  'input[aria-label="ページ表示サイズ 幅"]',
+                ) === null &&
                 document.querySelector('.subheading em')?.textContent ===
-                  'AUTO';
+                  'mobile';
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      (() => {
+        const input = document.querySelector(
+          'input[aria-label="余白 Custom"]',
+        );
+        if (!(input instanceof HTMLInputElement)) {
+          throw new Error('The custom margin input was not found.');
+        }
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          'value',
+        )?.set;
+        input.focus();
+        setter?.call(input, '');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()
+    `);
+    await cdp.evaluate(`
+      document.querySelector('input[aria-label="余白 Custom"]')?.blur()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v6'),
+              );
+              const input = document.querySelector(
+                'input[aria-label="余白 Custom"]',
+              );
+              return settings.margin === 32 &&
+                settings.outputWidth === 840 &&
+                settings.outputHeight === 1736 &&
+                input instanceof HTMLInputElement &&
+                input.value === '32';
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      (() => {
+        const margin = document.querySelector(
+          'button[aria-label="余白 16px"]',
+        );
+        const noFrame = Array.from(
+          document.querySelectorAll('.frame-selector button'),
+        ).find(
+          (button) =>
+            button.querySelector('span:last-child')?.textContent === 'None',
+        );
+        if (
+          !(margin instanceof HTMLButtonElement) ||
+          !(noFrame instanceof HTMLButtonElement)
+        ) {
+          throw new Error('The consecutive settings actions were not found.');
+        }
+        margin.click();
+        noFrame.click();
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v6'),
+              );
+              return settings.viewportWidth === 360 &&
+                settings.viewportHeight === 808 &&
+                settings.margin === 16 &&
+                settings.frameStyle === 'none' &&
+                settings.outputWidth === 752 &&
+                settings.outputHeight === 1648 &&
+                document.querySelector(
+                  'button[aria-label="余白 16px"]',
+                )?.getAttribute('aria-pressed') === 'true';
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      (() => {
+        const phone = Array.from(
+          document.querySelectorAll('.frame-selector button'),
+        ).find((button) => button.textContent?.trim() === 'Phone');
+        if (!(phone instanceof HTMLButtonElement)) {
+          throw new Error('The Phone frame action was not found.');
+        }
+        phone.click();
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v6'),
+              );
+              return settings.margin === 16 &&
+                settings.frameStyle === 'phone' &&
+                settings.phoneFrameVariant === 'android' &&
+                settings.outputWidth === 808 &&
+                settings.outputHeight === 1704;
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      document.querySelector('button[aria-label="余白 32px"]')?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v6'),
+              );
+              return settings.margin === 32 &&
+                settings.outputWidth === 840 &&
+                settings.outputHeight === 1736;
             })()
           `),
         { timeout: 5_000 },
@@ -2445,7 +2614,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v5'),
+                localStorage.getItem('frameshot:settings:v6'),
               );
               return settings.deviceMode === 'mobile' &&
                 settings.frameStyle === 'phone' &&
@@ -2508,7 +2677,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v5'),
+                localStorage.getItem('frameshot:settings:v6'),
               );
               return settings.deviceMode === 'mobile' &&
                 settings.frameStyle === 'tablet' &&
@@ -2623,7 +2792,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v5'),
+                localStorage.getItem('frameshot:settings:v6'),
               );
               return settings.frameStyle === 'browser' &&
                 settings.viewportWidth === 1024 &&
@@ -2676,7 +2845,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
               'button[aria-controls="settings-panel"]',
             )?.getAttribute('aria-expanded') === 'true' &&
               document.activeElement?.getAttribute('aria-label') ===
-                'ページ表示サイズ 幅'
+                'Webビューサイズ 幅'
           `),
         { timeout: 5_000 },
       )
@@ -2684,7 +2853,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     await cdp.evaluate(`
       (() => {
         const input = document.querySelector(
-          'input[aria-label="ページ表示サイズ 幅"]',
+          'input[aria-label="Webビューサイズ 幅"]',
         );
         if (!(input instanceof HTMLInputElement)) {
           throw new Error('The custom viewport width input was not found.');
@@ -2697,13 +2866,18 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         input.dispatchEvent(new Event('input', { bubbles: true }));
       })()
     `);
+    await cdp.evaluate(`
+      document.querySelector(
+        'input[aria-label="Webビューサイズ 幅"]',
+      )?.blur()
+    `);
     await expect
       .poll(
         () =>
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v5'),
+                localStorage.getItem('frameshot:settings:v6'),
               );
               return settings.viewportWidth === 414 &&
                 settings.viewportHeight === 1366 &&
@@ -2774,7 +2948,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v5'),
+                localStorage.getItem('frameshot:settings:v6'),
               );
               return settings.deviceMode === 'desktop' &&
                 settings.outputWidth === 2560 &&
@@ -2814,6 +2988,114 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           document.querySelectorAll(
             '[data-device-mode="desktop"] [role="menuitemradio"]',
           ),
+        ).find((button) => button.querySelector('b')?.textContent === 'Desktop');
+        if (!(preset instanceof HTMLButtonElement)) {
+          throw new Error('The Desktop screenshot preset was not found.');
+        }
+        preset.click();
+      })()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v6'),
+              );
+              return settings.deviceMode === 'desktop' &&
+                settings.outputWidth === 1440 &&
+                settings.outputHeight === 900 &&
+                settings.viewportWidth === 1376 &&
+                settings.viewportHeight === 778 &&
+                settings.margin === 32;
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      document.querySelector('button[aria-controls="settings-panel"]')?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              'button[aria-label="余白 16px"]',
+            ) !== null
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      document.querySelector('button[aria-label="余白 16px"]')?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v6'),
+              );
+              return settings.outputWidth === 1440 &&
+                settings.outputHeight === 900 &&
+                settings.viewportWidth === 1408 &&
+                settings.viewportHeight === 810 &&
+                settings.margin === 16;
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      document.querySelector('button[aria-label="余白 32px"]')?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            (() => {
+              const settings = JSON.parse(
+                localStorage.getItem('frameshot:settings:v6'),
+              );
+              return settings.outputWidth === 1440 &&
+                settings.outputHeight === 900 &&
+                settings.viewportWidth === 1376 &&
+                settings.viewportHeight === 778 &&
+                settings.margin === 32;
+            })()
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      document.querySelector('.settings-close-button')?.click()
+    `);
+    await waitForSettingsPanelToClose(cdp);
+    await cdp.evaluate(`
+      document.querySelector(
+        '[data-device-mode="desktop"] .viewport-menu-trigger',
+      )?.click()
+    `);
+    await expect
+      .poll(
+        () =>
+          cdp.evaluate<boolean>(`
+            document.querySelector(
+              '[data-device-mode="desktop"] [role="menu"]',
+            ) !== null
+          `),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
+    await cdp.evaluate(`
+      (() => {
+        const preset = Array.from(
+          document.querySelectorAll(
+            '[data-device-mode="desktop"] [role="menuitemradio"]',
+          ),
         ).find((button) => button.querySelector('b')?.textContent === 'Full HD');
         if (!(preset instanceof HTMLButtonElement)) {
           throw new Error('The Full HD screenshot preset was not found.');
@@ -2827,7 +3109,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           cdp.evaluate<boolean>(`
             (() => {
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v5'),
+                localStorage.getItem('frameshot:settings:v6'),
               );
               return settings.deviceMode === 'desktop' &&
                 settings.outputWidth === 1920 &&
@@ -2856,7 +3138,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     ).toBe('preserved');
 
     const desktopSettings = await cdp.evaluate<CaptureSettings>(`
-      JSON.parse(localStorage.getItem('frameshot:settings:v5'))
+      JSON.parse(localStorage.getItem('frameshot:settings:v6'))
     `);
     expect(desktopSettings).toMatchObject({
       deviceMode: 'desktop',
@@ -2905,7 +3187,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
               'button[aria-controls="settings-panel"]',
             )?.getAttribute('aria-expanded') === 'true' &&
               document.activeElement?.getAttribute('aria-label') ===
-                'スクリーンショットサイズ 幅'
+                'Webビューサイズ 幅'
           `),
         { timeout: 5_000 },
       )
@@ -2921,7 +3203,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
       const clipboardError = await cdp.evaluate<string>(`
         (async () => {
           const settings = JSON.parse(
-            localStorage.getItem('frameshot:settings:v5'),
+            localStorage.getItem('frameshot:settings:v6'),
           );
           try {
             await window.frameShot.exportImage(settings, 'clipboard');
@@ -2952,7 +3234,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
         const directExport = await cdp.evaluate<ExportResult>(`
           (async () => {
             const settings = JSON.parse(
-              localStorage.getItem('frameshot:settings:v5'),
+              localStorage.getItem('frameshot:settings:v6'),
             );
             return window.frameShot.exportImage(
               {
@@ -3185,7 +3467,7 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
                 '.gradient-swatch[title="Sea Glass Flow"]',
               );
               const settings = JSON.parse(
-                localStorage.getItem('frameshot:settings:v5'),
+                localStorage.getItem('frameshot:settings:v6'),
               );
               return artboard instanceof HTMLElement &&
                 glow instanceof HTMLElement &&
@@ -3318,7 +3600,7 @@ test('@windows-clipboard copies a fixture image and keeps the app alive', async 
     await waitForMainText(app.cdp, 'FrameShot fixture — WebGL2 ready');
 
     const settings = await app.cdp.evaluate<CaptureSettings>(`
-      JSON.parse(localStorage.getItem('frameshot:settings:v5'))
+      JSON.parse(localStorage.getItem('frameshot:settings:v6'))
     `);
     expect(settings).toMatchObject({
       deviceMode: 'desktop',
@@ -3503,7 +3785,7 @@ test('closes the application window without main process errors', async () => {
     await app.cdp.evaluate(`
       (() => {
         const settings = {
-          ...JSON.parse(localStorage.getItem('frameshot:settings:v5')),
+          ...JSON.parse(localStorage.getItem('frameshot:settings:v6')),
           captureScale: 2,
           pauseAnimations: true,
           waitMs: 5000,

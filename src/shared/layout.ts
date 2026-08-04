@@ -79,12 +79,33 @@ function frameMetrics(
 export function normalizeMobileOutput(
   settings: CaptureSettings,
 ): CaptureSettings {
-  if (settings.deviceMode !== 'mobile') return settings;
+  return settings.deviceMode === 'mobile'
+    ? normalizeCaptureGeometry(settings)
+    : settings;
+}
 
+export function normalizeCaptureGeometry(
+  settings: CaptureSettings,
+): CaptureSettings {
   const { insets } = frameMetrics(settings);
+  const margin = Math.round(settings.margin);
+  if (settings.deviceMode === 'desktop') {
+    const outputWidth = Math.round(settings.outputWidth);
+    const outputHeight = Math.round(settings.outputHeight);
+    return {
+      ...settings,
+      outputWidth,
+      outputHeight,
+      viewportWidth:
+        outputWidth - insets.left - insets.right - margin * 2,
+      viewportHeight:
+        outputHeight - insets.top - insets.bottom - margin * 2,
+      margin,
+    };
+  }
+
   const viewportWidth = Math.round(settings.viewportWidth);
   const viewportHeight = Math.round(settings.viewportHeight);
-  const margin = Math.round(settings.margin);
   return {
     ...settings,
     outputWidth:
@@ -93,6 +114,9 @@ export function normalizeMobileOutput(
     outputHeight:
       (viewportHeight + insets.top + insets.bottom) * MOBILE_OUTPUT_SCALE +
       margin * 2,
+    viewportWidth,
+    viewportHeight,
+    margin,
     captureScale: MOBILE_OUTPUT_SCALE,
   };
 }
@@ -118,44 +142,39 @@ export function roundRectangleEdges(rectangle: RectangleEdges): {
 export function calculateCompositionLayout(
   settings: CaptureSettings,
 ): CompositionLayout {
-  const outputWidth = clamp(Math.round(settings.outputWidth), 320, 7680);
-  const outputHeight = clamp(Math.round(settings.outputHeight), 320, 7680);
-  const viewportWidth = clamp(Math.round(settings.viewportWidth), 240, 3840);
-  const viewportHeight = clamp(Math.round(settings.viewportHeight), 240, 3840);
-  const maximumMargin = Math.floor(Math.min(outputWidth, outputHeight) * 0.42);
-  const margin = clamp(Math.round(settings.margin), 0, maximumMargin);
-  const metrics = frameMetrics(settings);
+  const normalized = normalizeCaptureGeometry(settings);
+  const outputWidth = normalized.outputWidth;
+  const outputHeight = normalized.outputHeight;
+  const viewportWidth = normalized.viewportWidth;
+  const viewportHeight = normalized.viewportHeight;
+  const margin = normalized.margin;
+  const metrics = frameMetrics(normalized);
   const { insets } = metrics;
   const intrinsicWidth = viewportWidth + insets.left + insets.right;
   const intrinsicHeight = viewportHeight + insets.top + insets.bottom;
-
-  const availableWidth = Math.max(1, outputWidth - margin * 2);
-  const availableHeight = Math.max(1, outputHeight - margin * 2);
-  const scale = Math.min(
-    availableWidth / intrinsicWidth,
-    availableHeight / intrinsicHeight,
-  );
+  const scale =
+    normalized.deviceMode === 'mobile' ? MOBILE_OUTPUT_SCALE : 1;
 
   const frameWidth = intrinsicWidth * scale;
   const frameHeight = intrinsicHeight * scale;
-  const frameX = (outputWidth - frameWidth) / 2;
-  const frameY = (outputHeight - frameHeight) / 2;
+  const frameX = margin;
+  const frameY = margin;
   const screenWidth = viewportWidth * scale;
   const screenHeight = viewportHeight * scale;
-  const artboard = roundRectangleEdges({
-    left: clamp(frameX - margin, 0, outputWidth),
-    top: clamp(frameY - margin, 0, outputHeight),
-    right: clamp(frameX + frameWidth + margin, 0, outputWidth),
-    bottom: clamp(frameY + frameHeight + margin, 0, outputHeight),
-  });
+  const artboard = {
+    x: 0,
+    y: 0,
+    width: outputWidth,
+    height: outputHeight,
+  };
 
-  const desktopScreenRadius = Math.max(0, settings.cornerRadius - 2);
+  const desktopScreenRadius = Math.max(0, normalized.cornerRadius - 2);
   const frameRadius =
     metrics.frameRadius !== null
       ? metrics.frameRadius * scale
-      : settings.frameStyle === 'none'
+      : normalized.frameStyle === 'none'
         ? desktopScreenRadius
-        : settings.cornerRadius;
+        : normalized.cornerRadius;
   const screenRadius =
     metrics.screenRadius !== null
       ? metrics.screenRadius * scale
@@ -179,22 +198,22 @@ export function calculateCompositionLayout(
       radius: screenRadius,
     },
     browserBarHeight:
-      settings.frameStyle === 'browser' ? BROWSER_BAR_HEIGHT * scale : 0,
+      normalized.frameStyle === 'browser' ? BROWSER_BAR_HEIGHT * scale : 0,
     browserAddressHeight:
-      settings.frameStyle === 'browser'
+      normalized.frameStyle === 'browser'
         ? BROWSER_BAR_HEIGHT * scale * BROWSER_ADDRESS_HEIGHT_RATIO
         : 0,
     phoneBezel: {
-      left: settings.frameStyle === 'phone' ? insets.left * scale : 0,
-      top: settings.frameStyle === 'phone' ? insets.top * scale : 0,
-      right: settings.frameStyle === 'phone' ? insets.right * scale : 0,
-      bottom: settings.frameStyle === 'phone' ? insets.bottom * scale : 0,
+      left: normalized.frameStyle === 'phone' ? insets.left * scale : 0,
+      top: normalized.frameStyle === 'phone' ? insets.top * scale : 0,
+      right: normalized.frameStyle === 'phone' ? insets.right * scale : 0,
+      bottom: normalized.frameStyle === 'phone' ? insets.bottom * scale : 0,
     },
     tabletBezel: {
-      left: settings.frameStyle === 'tablet' ? TABLET_BEZEL * scale : 0,
-      top: settings.frameStyle === 'tablet' ? TABLET_BEZEL * scale : 0,
-      right: settings.frameStyle === 'tablet' ? TABLET_BEZEL * scale : 0,
-      bottom: settings.frameStyle === 'tablet' ? TABLET_BEZEL * scale : 0,
+      left: normalized.frameStyle === 'tablet' ? TABLET_BEZEL * scale : 0,
+      top: normalized.frameStyle === 'tablet' ? TABLET_BEZEL * scale : 0,
+      right: normalized.frameStyle === 'tablet' ? TABLET_BEZEL * scale : 0,
+      bottom: normalized.frameStyle === 'tablet' ? TABLET_BEZEL * scale : 0,
     },
   };
 }

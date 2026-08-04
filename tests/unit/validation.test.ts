@@ -5,6 +5,7 @@ import {
   applyDevicePreset,
 } from '@shared/presets';
 import {
+  MAX_CAPTURE_MARGIN,
   MAX_CAPTURE_PIXELS,
   validateCaptureSettings,
   validateTargetViewLayout,
@@ -84,18 +85,31 @@ describe('capture settings validation', () => {
     ).toThrow('背景スタイルが不正です');
   });
 
-  it('names screenshot and page display fields in validation errors', () => {
+  it('names the authoritative Web view fields in validation errors', () => {
     expect(() =>
       validateCaptureSettings({ ...DEFAULT_SETTINGS, outputWidth: 9000 }),
-    ).toThrow('スクリーンショットサイズ 幅');
+    ).toThrow('Webビューサイズ 幅');
     expect(() =>
-      validateCaptureSettings({ ...DEFAULT_SETTINGS, viewportHeight: 5000 }),
-    ).toThrow('ページ表示サイズ 高さ');
+      validateCaptureSettings({
+        ...DEFAULT_SETTINGS,
+        deviceMode: 'mobile',
+        viewportHeight: 5000,
+      }),
+    ).toThrow('Webビューサイズ 高さ');
+  });
+
+  it('rejects margins outside the settings control range', () => {
+    expect(() =>
+      validateCaptureSettings({
+        ...DEFAULT_SETTINGS,
+        margin: MAX_CAPTURE_MARGIN + 1,
+      }),
+    ).toThrow(`余白は0〜${MAX_CAPTURE_MARGIN}の範囲で指定してください。`);
   });
 
   it.each([
-    [3840, 240, '自動出力サイズ 幅'],
-    [240, 3840, '自動出力サイズ 高さ'],
+    [3840, 240, '書き出しサイズ 幅'],
+    [240, 3840, '書き出しサイズ 高さ'],
   ] as const)(
     'names an oversized %sx%s mobile output as derived',
     (viewportWidth, viewportHeight, errorField) => {
@@ -125,8 +139,8 @@ describe('capture settings validation', () => {
       ...DEFAULT_SETTINGS,
       outputWidth: 3840,
       outputHeight: 2160,
-      viewportWidth: 2160,
-      viewportHeight: 3840,
+      frameStyle: 'none',
+      margin: 0,
       captureScale: 1,
     });
 
@@ -149,19 +163,21 @@ describe('capture settings validation', () => {
         outputHeight: 2161,
         captureScale: 1,
       }),
-    ).toThrow('スクリーンショットサイズは合計8,294,400画素以下');
+    ).toThrow('書き出しサイズは合計8,294,400画素以下');
   });
 
   it('rejects scaled viewport images above the pixel budget', () => {
     expect(() =>
       validateCaptureSettings({
         ...DEFAULT_SETTINGS,
-        viewportWidth: 1920,
-        viewportHeight: 1081,
+        outputWidth: 2160,
+        outputHeight: 1920,
+        frameStyle: 'none',
+        margin: 0,
         captureScale: 2,
       }),
     ).toThrow(
-      '撮影倍率適用後のページ表示サイズは合計8,294,400画素以下',
+      '撮影倍率適用後のWebビューサイズは合計8,294,400画素以下',
     );
   });
 
@@ -175,8 +191,34 @@ describe('capture settings validation', () => {
     });
 
     expect(() => validateCaptureSettings(settings)).toThrow(
-      '自動出力サイズは合計8,294,400画素以下',
+      '書き出しサイズは合計8,294,400画素以下',
     );
+  });
+
+  it('rejects a desktop size that cannot contain a 240px viewport', () => {
+    expect(() =>
+      validateCaptureSettings({
+        ...DEFAULT_SETTINGS,
+        outputWidth: 320,
+        outputHeight: 320,
+      }),
+    ).toThrow('算出後のページviewport 高さ');
+  });
+
+  it('replaces stale desktop viewport values with derived dimensions', () => {
+    expect(
+      validateCaptureSettings({
+        ...DEFAULT_SETTINGS,
+        viewportWidth: 3000,
+        viewportHeight: 3000,
+        margin: 16,
+      }),
+    ).toMatchObject({
+      outputWidth: 1920,
+      outputHeight: 1080,
+      viewportWidth: 1888,
+      viewportHeight: 990,
+    });
   });
 });
 

@@ -5,6 +5,7 @@ export type CaptureScale = 1 | 2;
 export type ExportDestination = 'clipboard' | 'file';
 export type AppShortcut = 'save' | 'focus-url' | 'reload-target';
 export type MobileDeviceGroup = 'android' | 'iphone' | 'ipad';
+export type DesktopResolutionGroup = 'full-hd-and-below' | 'high-resolution';
 export type PhoneFrameVariant = 'android' | 'iphone';
 
 export interface ViewportSpec {
@@ -39,13 +40,11 @@ export interface DesktopResolutionPreset {
   kind: 'desktop';
   id: string;
   name: string;
+  group: DesktopResolutionGroup;
   deviceMode: 'desktop';
   frameStyle: 'browser';
   outputWidth: number;
   outputHeight: number;
-  viewportWidth: number;
-  viewportHeight: number;
-  margin: number;
 }
 
 export interface MobileDevicePreset {

@@ -167,22 +167,25 @@ describe('built-in presets', () => {
     },
   );
 
-  it('provides the approved desktop resolutions and their page display sizes', () => {
+  it('provides the approved desktop resolution groups', () => {
     expect(
       devicePresetsFor('desktop').map(
-        ({ name, outputWidth, outputHeight, viewportWidth, viewportHeight }) => [
+        ({ group, name, outputWidth, outputHeight }) => [
+          group,
           name,
           outputWidth,
           outputHeight,
-          viewportWidth,
-          viewportHeight,
         ],
       ),
     ).toEqual([
-      ['Full HD', 1920, 1080, 1856, 958],
-      ['WQHD', 2560, 1440, 2496, 1318],
-      ['UWQHD', 3440, 1440, 3376, 1318],
-      ['4K UHD', 3840, 2160, 3776, 2038],
+      ['full-hd-and-below', 'Full HD', 1920, 1080],
+      ['full-hd-and-below', 'Desktop', 1440, 900],
+      ['full-hd-and-below', 'Laptop', 1366, 768],
+      ['full-hd-and-below', 'Compact', 1280, 800],
+      ['full-hd-and-below', 'HD', 1280, 720],
+      ['high-resolution', 'WQHD', 2560, 1440],
+      ['high-resolution', 'UWQHD', 3440, 1440],
+      ['high-resolution', '4K UHD', 3840, 2160],
     ]);
   });
 
@@ -213,7 +216,7 @@ describe('built-in presets', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('applies all fields that define a desktop resolution', () => {
+  it('applies a desktop resolution while preserving its independent margin', () => {
     const preset = DESKTOP_RESOLUTION_PRESETS.find(
       (candidate) => candidate.id === 'desktop-wqhd',
     );
@@ -235,11 +238,11 @@ describe('built-in presets', () => {
       ...previous,
       outputWidth: 2560,
       outputHeight: 1440,
-      viewportWidth: 2496,
-      viewportHeight: 1318,
+      viewportWidth: 2400,
+      viewportHeight: 1222,
       deviceMode: 'desktop',
       frameStyle: 'browser',
-      margin: 32,
+      margin: 80,
       captureScale: 1,
       showUrl: true,
     });
@@ -256,6 +259,20 @@ describe('built-in presets', () => {
       applyDevicePreset({ ...DEFAULT_SETTINGS, captureScale: 1 }, fullHd!)
         .captureScale,
     ).toBe(1);
+  });
+
+  it.each([
+    'desktop-default',
+    'desktop-laptop',
+    'desktop-compact',
+    'desktop-hd',
+  ])('keeps a 2x page capture for %s', (presetId) => {
+    const preset = DESKTOP_RESOLUTION_PRESETS.find(
+      (candidate) => candidate.id === presetId,
+    );
+    expect(preset).toBeDefined();
+
+    expect(applyDevicePreset(DEFAULT_SETTINGS, preset!).captureScale).toBe(2);
   });
 
   it.each(['desktop-wqhd', 'desktop-uwqhd', 'desktop-4k-uhd'])(
@@ -318,7 +335,7 @@ describe('built-in presets', () => {
     });
   });
 
-  it('finds a preset only while its defining sizes still match', () => {
+  it('matches desktop presets by size independently from frame and margin', () => {
     const fullHd = applyDevicePreset(
       DEFAULT_SETTINGS,
       DESKTOP_RESOLUTION_PRESETS[0],
@@ -334,9 +351,16 @@ describe('built-in presets', () => {
     ).toBeUndefined();
     expect(
       findDevicePreset({ ...fullHd, frameStyle: 'none' }),
-    ).toBeUndefined();
-    expect(findDevicePreset({ ...fullHd, margin: 48 })).toBeUndefined();
-    expect(findDevicePreset({ ...fullHd, showUrl: false })).toBeUndefined();
+    ).toMatchObject({ id: 'desktop-full-hd' });
+    expect(findDevicePreset({ ...fullHd, margin: 48 })).toMatchObject({
+      id: 'desktop-full-hd',
+    });
+    expect(findDevicePreset({ ...fullHd, showUrl: false })).toMatchObject({
+      id: 'desktop-full-hd',
+    });
+    expect(
+      findDevicePreset({ ...fullHd, viewportWidth: 1200 }),
+    ).toMatchObject({ id: 'desktop-full-hd' });
     expect(findDevicePreset(pixel)?.id).toBe('android-pixel-10');
     expect(
       findDevicePreset({ ...pixel, phoneFrameVariant: 'iphone' }),
