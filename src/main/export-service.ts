@@ -384,10 +384,10 @@ export class ExportService {
     exportWindow: BrowserWindow,
     artboard: CompositionLayout['artboard'],
   ): Promise<NativeImage> {
+    // Do not add stayAwake: Electron 43 can crash while cancelling its capture wake lock on Windows.
     return withExportTimeout(
       exportWindow.webContents.capturePage(artboard, {
         stayHidden: !this.options.prepareHeadlessCaptureSurface,
-        stayAwake: true,
       }),
       '完成画像の取得',
     );

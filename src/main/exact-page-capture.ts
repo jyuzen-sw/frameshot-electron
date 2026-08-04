@@ -20,7 +20,6 @@ export interface ExactPageCaptureAdapter<TImage extends CapturedPageImage> {
     rectangle: PageCaptureRectangle,
     options: {
       stayHidden: false;
-      stayAwake: true;
     },
   ): Promise<TImage>;
 }
@@ -76,9 +75,9 @@ export async function captureExactPage<
   for (let attempt = 0; attempt < MAX_CAPTURE_ATTEMPTS; attempt += 1) {
     await adapter.prepareAttempt();
     adapter.invalidate();
+    // Do not add stayAwake: Electron 43 can crash while cancelling its capture wake lock on Windows.
     const image = await adapter.capturePage(rectangle, {
       stayHidden: false,
-      stayAwake: true,
     });
     lastActual = imageSizeDescription(image);
     const actualSize = image.getSize();
