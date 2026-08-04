@@ -24,6 +24,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run package && playwright test",
+    "test:e2e:windows-clipboard": "playwright test --grep @windows-clipboard --workers=1 --retries=0",
     "verify": "npm run typecheck && npm run test",
     "verify:fuses": "node scripts/verify-fuses.mjs",
     "verify:windows-portable": "node scripts/verify-windows-portable.mjs",
@@ -63,7 +64,8 @@
     "electron-winstaller@5.4.4": true
   },
   "overrides": {
-    "brace-expansion": "5.0.8",
+    "brace-expansion": "5.0.9",
+    "fast-uri": "3.1.5",
     "tmp": "0.2.7"
   },
   "config": {

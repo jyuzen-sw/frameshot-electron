@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import { createServer, type Server } from 'node:http';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
@@ -299,20 +300,15 @@ function packagedExecutable(): string {
 }
 
 function developmentElectronExecutable(): string {
-  const base = path.resolve('node_modules', 'electron', 'dist');
-  if (process.platform === 'win32') {
-    return path.join(base, 'electron.exe');
+  // Electron 43 installs its platform binary lazily, so the dist path may not
+  // exist after a clean npm install until the package entry point is loaded.
+  const executable = createRequire(path.resolve('package.json'))(
+    'electron',
+  ) as unknown;
+  if (typeof executable !== 'string') {
+    throw new Error('Electron development executable could not be resolved.');
   }
-  if (process.platform === 'darwin') {
-    return path.join(
-      base,
-      'Electron.app',
-      'Contents',
-      'MacOS',
-      'Electron',
-    );
-  }
-  return path.join(base, 'electron');
+  return executable;
 }
 
 async function probeClipboardImage(
@@ -3294,6 +3290,114 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
     targetCdp?.close();
     await cleanupScenario(
       'WebGL2 shared export',
+      app,
+      fixture.server,
+      tempDirectory,
+      scenarioError,
+    );
+  }
+});
+
+test('@windows-clipboard copies a fixture image and keeps the app alive', async () => {
+  test.skip(
+    process.platform !== 'win32',
+    'This scenario requires the native Windows clipboard.',
+  );
+
+  const fixture = await startFixtureServer();
+  const tempDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'frameshot-windows-clipboard-e2e-'),
+  );
+  let app: RunningApp | null = null;
+  let scenarioError: unknown;
+
+  try {
+    app = await launchPackagedApp(tempDirectory);
+    await waitForMainUi(app.cdp);
+    await navigateFromMainUi(app.cdp, fixture.url);
+    await waitForMainText(app.cdp, 'FrameShot fixture — WebGL2 ready');
+
+    const settings = await app.cdp.evaluate<CaptureSettings>(`
+      JSON.parse(localStorage.getItem('frameshot:settings:v5'))
+    `);
+    expect(settings).toMatchObject({
+      deviceMode: 'desktop',
+      viewportHeight: 958,
+      viewportWidth: 1856,
+    });
+    const clipboardSettings: CaptureSettings = {
+      ...settings,
+      pauseAnimations: false,
+    };
+    const artboard = calculateCompositionLayout(clipboardSettings).artboard;
+
+    const result = await app.cdp.evaluate<ExportResult>(`
+      window.frameShot.exportImage(
+        ${JSON.stringify(clipboardSettings)},
+        'clipboard',
+      )
+    `);
+    expect(result).toMatchObject({
+      destination: 'clipboard',
+      completed: true,
+      width: artboard.width,
+      height: artboard.height,
+    });
+    expect(result.exportedAt).toEqual(expect.any(String));
+
+    const probe = await probeClipboardImage(
+      tempDirectory,
+      'native-windows-clipboard',
+    );
+    expect(probe).toMatchObject({
+      width: artboard.width,
+      height: artboard.height,
+    });
+    const markerPixels = await samplePngPixels(
+      app.cdp,
+      probe.pngPath,
+      compositionViewportSamplePoints(clipboardSettings),
+    );
+    const expectedMarkerPixels = [
+      [255, 0, 85, 255],
+      [0, 229, 255, 255],
+      [255, 214, 0, 255],
+      [140, 82, 255, 255],
+      [22, 163, 74, 255],
+    ] as const;
+    for (const [index, expectedPixel] of expectedMarkerPixels.entries()) {
+      expectPixelNear(markerPixels[index] ?? [], expectedPixel);
+    }
+
+    const stoppedAfterCopy = await waitForChildProcessToStop(app.child, 3_250);
+    expect(
+      stoppedAfterCopy,
+      `FrameShot stopped after the native clipboard copy (${childProcessResult(app.child)}).\n${app.output()}`,
+    ).toBe(false);
+    expect(
+      await app.cdp.evaluate<boolean>(`
+        window.frameShot.getPreferences().then(() => true)
+      `),
+    ).toBe(true);
+
+    const completedApp = app;
+    await stopPackagedApp(completedApp);
+    const closeResult = await completedApp.closed;
+    app = null;
+    expect(closeResult.code).toBe(0);
+    expect(closeResult.signal).toBeNull();
+    logE2e(
+      'Native Windows clipboard copy remained stable and exited normally.',
+    );
+  } catch (error) {
+    scenarioError = error;
+    if (app) {
+      logElectronOutput(app.output());
+    }
+    throw error;
+  } finally {
+    await cleanupScenario(
+      'native Windows clipboard',
       app,
       fixture.server,
       tempDirectory,

@@ -23,10 +23,7 @@ import {
   EXPORT_RENDERER_HASH,
   installAppProtocol,
 } from './app-protocol';
-import {
-  assertImageClipboardSupported,
-  writeVerifiedClipboardImage,
-} from './clipboard-image';
+import { assertImageClipboardSupported } from './clipboard-image';
 import { ExclusiveOperation } from './exclusive-operation';
 import {
   EXPORT_PARTITION,
@@ -198,13 +195,9 @@ export class ExportService {
       this.assertNotDisposed();
 
       if (destination === 'clipboard') {
-        writeVerifiedClipboardImage(
-          {
-            writeImage: (image) => clipboard.writeImage(image, 'clipboard'),
-            readImage: () => clipboard.readImage('clipboard'),
-          },
-          composite,
-        );
+        // Do not read back in this process: Electron 43 can crash on Windows
+        // after a synchronous clipboard write/read sequence.
+        clipboard.writeImage(composite, 'clipboard');
       } else {
         await fs.writeFile(outputPath!, composite.toPNG());
       }
@@ -384,10 +377,10 @@ export class ExportService {
     exportWindow: BrowserWindow,
     artboard: CompositionLayout['artboard'],
   ): Promise<NativeImage> {
+    // Do not add stayAwake: Electron 43 can crash while cancelling its capture wake lock on Windows.
     return withExportTimeout(
       exportWindow.webContents.capturePage(artboard, {
         stayHidden: !this.options.prepareHeadlessCaptureSurface,
-        stayAwake: true,
       }),
       '完成画像の取得',
     );

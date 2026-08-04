@@ -103,7 +103,7 @@ Desktopではフレームを8px、ページ表示部分を6pxの控えめな角�
 
 ### クリップボード
 
-画像コピーのサポート対象は、FrameShotをネイティブWindows環境で起動した場合です。コピー後にOSのクリップボードから画像を読み戻し、完成PNGと同じ寸法であることを確認してから成功を表示します。
+画像コピーのサポート対象は、FrameShotをネイティブWindows環境で起動した場合です。Electronの同期的なクリップボード書き込みが例外なく完了したことを成功条件とします。Windows版Electron 43のアクセス違反を避けるため、同じMain Processから書き込み直後に画像を読み戻しません。
 
 WSL2 / WSLgの `npm start` では、Linux側に書き込んだ画像がWindows側の画像クリップボードへ渡らないため、コピーは未対応として案内します。この場合はネイティブWindows版を起動するか「保存」でPNGを書き出してください。WSLからPowerShellを起動する橋渡しや、ページPNGの一時ファイル作成は行いません。
 
@@ -189,7 +189,7 @@ npm run verify:windows-portable # portable exeの名前とPE構造を検証
 
 成果物は `out/` 以下に生成されます。
 
-E2Eは既定でElectronのheadless backendを使用し、保存ダイアログやOSクリップボードへ依存せず、テスト専用user data内のPNGを検証します。LinuxではOzone headlessを使い、`DISPLAY`と`WAYLAND_DISPLAY`を渡さず実行します。WSL以外でGUI displayとOSクリップボードを利用できる環境では、`FRAMESHOT_E2E_HEADED=1`を設定して従来のheaded検証も実行できます。
+通常のE2EはElectronのheadless backendを使用し、保存ダイアログやOSクリップボードへ依存せず、テスト専用user data内のPNGを検証します。Windows Actionsでは専用ケースを実行し、別Electron processからOSクリップボード上の画像とコピー後のFrameShot process・IPCの生存を確認します。LinuxではOzone headlessを使い、`DISPLAY`と`WAYLAND_DISPLAY`を渡さず実行します。WSL以外でGUI displayとOSクリップボードを利用できる環境では、`FRAMESHOT_E2E_HEADED=1`を設定して従来のheaded検証も実行できます。
 
 現在の公開配布ターゲットはWindows x64だけです。GitHub Releaseには、インストーラー不要の単一ファイル `FrameShot-N.N.N-Windows-x64-Portable.exe` だけを添付します。Electron ForgeによるSquirrel用の `FrameShot-Setup.exe`、NuGetパッケージ、`RELEASES` のローカル生成経路は維持しますが、Squirrel成果物とLinux packageはGitHub Releaseの対象外です。Electron FuseでRunAsNode、`NODE_OPTIONS`、CLI inspect、ASAR外からのアプリ読込を無効化し、ASAR integrityとCookie暗号化を有効化しています。CIはpull requestと `main` pushでLinux上のaudit、型検査、単体テストを実行し、`main` pushではWindowsとLinuxのパッケージ済みアプリをheadless E2Eで検証します。
 

@@ -55,7 +55,6 @@ jobs:
   e2e-windows:
     name: Runtime E2E (Windows/headless)
     needs: quality-linux
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: windows-latest
     steps:
       - name: Check out repository
@@ -68,5 +67,9 @@ jobs:
         run: npm ci
       - name: Package application
         run: npm run package
+      - name: Run Windows clipboard E2E test
+        if: github.event_name == 'pull_request'
+        run: npm run test:e2e:windows-clipboard
       - name: Run headless runtime E2E tests
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: npm run test:e2e:prepared

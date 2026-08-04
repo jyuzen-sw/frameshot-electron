@@ -35,7 +35,7 @@ describe('captureExactPage', () => {
     expect(adapter.invalidate).toHaveBeenCalledTimes(1);
     expect(adapter.capturePage).toHaveBeenCalledWith(
       { x: 0, y: 0, width: 2880, height: 1800 },
-      { stayHidden: false, stayAwake: true },
+      { stayHidden: false },
     );
   });
 
