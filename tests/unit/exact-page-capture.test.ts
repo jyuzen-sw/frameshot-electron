@@ -17,57 +17,73 @@ function adapterWith(
   images: CapturedPageImage[],
 ): ExactPageCaptureAdapter<CapturedPageImage> {
   return {
-    prepareAttempt: vi.fn(async () => undefined),
-    invalidate: vi.fn(),
+    prepareSurface: vi.fn(async () => undefined),
+    prepareCapture: vi.fn(async () => undefined),
     capturePage: vi.fn(async () => images.shift() ?? image(0, 0)),
   };
 }
 
 describe('captureExactPage', () => {
-  it('returns the first image when its size exactly matches', async () => {
+  it('returns a complete image captured after the initial surface paint', async () => {
+    const initialPaint = image(2880, 1800);
     const expected = image(2880, 1800);
-    const adapter = adapterWith([expected]);
+    const adapter = adapterWith([initialPaint, expected]);
 
     await expect(
       captureExactPage(adapter, { width: 2880, height: 1800 }),
     ).resolves.toBe(expected);
-    expect(adapter.prepareAttempt).toHaveBeenCalledTimes(1);
-    expect(adapter.invalidate).toHaveBeenCalledTimes(1);
+    expect(adapter.prepareSurface).toHaveBeenCalledTimes(1);
+    expect(adapter.prepareCapture).toHaveBeenCalledTimes(2);
+    expect(adapter.capturePage).toHaveBeenCalledTimes(2);
     expect(adapter.capturePage).toHaveBeenCalledWith(
       { x: 0, y: 0, width: 2880, height: 1800 },
       { stayHidden: false },
     );
   });
 
-  it('repaints and retries once after receiving a stale-size image', async () => {
+  it('repaints and retries after receiving a stale-size candidate', async () => {
+    const initialPaint = image(2880, 1800);
     const expected = image(2880, 1800);
-    const adapter = adapterWith([image(1193, 746), expected]);
+    const adapter = adapterWith([
+      initialPaint,
+      image(1193, 746),
+      expected,
+    ]);
 
     await expect(
       captureExactPage(adapter, { width: 2880, height: 1800 }),
     ).resolves.toBe(expected);
-    expect(adapter.prepareAttempt).toHaveBeenCalledTimes(2);
-    expect(adapter.invalidate).toHaveBeenCalledTimes(2);
-    expect(adapter.capturePage).toHaveBeenCalledTimes(2);
+    expect(adapter.prepareSurface).toHaveBeenCalledTimes(1);
+    expect(adapter.prepareCapture).toHaveBeenCalledTimes(3);
+    expect(adapter.capturePage).toHaveBeenCalledTimes(3);
   });
 
   it('reports expected and actual sizes after two mismatches', async () => {
-    const adapter = adapterWith([image(1193, 746), image(1440, 900)]);
+    const adapter = adapterWith([
+      image(2880, 1800),
+      image(1193, 746),
+      image(1440, 900),
+    ]);
 
     await expect(
       captureExactPage(adapter, { width: 2880, height: 1800 }),
     ).rejects.toThrow(
       '期待: 2880x1800、実際: 1440x900',
     );
-    expect(adapter.capturePage).toHaveBeenCalledTimes(2);
+    expect(adapter.capturePage).toHaveBeenCalledTimes(3);
   });
 
   it('reports an empty image after two failed attempts', async () => {
-    const adapter = adapterWith([image(0, 0), image(0, 0)]);
+    const adapter = adapterWith([
+      image(1440, 900),
+      image(0, 0),
+      image(0, 0),
+    ]);
 
     await expect(
       captureExactPage(adapter, { width: 1440, height: 900 }),
     ).rejects.toThrow('期待: 1440x900、実際: 空の画像');
+    expect(adapter.capturePage).toHaveBeenCalledTimes(3);
   });
 });
 

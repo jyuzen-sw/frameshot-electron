@@ -14,8 +14,8 @@ export interface PageCaptureRectangle {
 }
 
 export interface ExactPageCaptureAdapter<TImage extends CapturedPageImage> {
-  prepareAttempt(): Promise<void>;
-  invalidate(): void;
+  prepareSurface(): Promise<void>;
+  prepareCapture(): Promise<void>;
   capturePage(
     rectangle: PageCaptureRectangle,
     options: {
@@ -29,7 +29,12 @@ export interface RestorablePageCaptureAdapter<TResult> {
   restore(): Promise<void>;
 }
 
-const MAX_CAPTURE_ATTEMPTS = 2;
+export interface WarmupCaptureAdapter<TResult> {
+  prepareCapture(): Promise<void>;
+  capture(): Promise<TResult>;
+}
+
+const MAX_CAPTURE_CANDIDATES = 2;
 
 function imageSizeDescription(image: CapturedPageImage): string {
   if (image.isEmpty()) return '空の画像';
@@ -55,6 +60,33 @@ export async function captureWithRestoration<TResult>(
   }
 }
 
+export async function captureAfterWarmup<TResult>(
+  adapter: WarmupCaptureAdapter<TResult>,
+  accepts: (result: TResult) => boolean,
+  failure: (lastResult: TResult) => Error,
+): Promise<TResult> {
+  await adapter.prepareCapture();
+  // DOM readiness does not guarantee that Chromium has completed a heavy
+  // compositor frame, so the first capture only warms the new surface.
+  await adapter.capture();
+
+  await adapter.prepareCapture();
+  let lastResult = await adapter.capture();
+  if (accepts(lastResult)) return lastResult;
+
+  for (
+    let candidate = 1;
+    candidate < MAX_CAPTURE_CANDIDATES;
+    candidate += 1
+  ) {
+    await adapter.prepareCapture();
+    lastResult = await adapter.capture();
+    if (accepts(lastResult)) return lastResult;
+  }
+
+  throw failure(lastResult);
+}
+
 export async function captureExactPage<
   TImage extends CapturedPageImage,
 >(
@@ -70,28 +102,28 @@ export async function captureExactPage<
     width: expectedSize.width,
     height: expectedSize.height,
   };
-  let lastActual = '未取得';
+  await adapter.prepareSurface();
 
-  for (let attempt = 0; attempt < MAX_CAPTURE_ATTEMPTS; attempt += 1) {
-    await adapter.prepareAttempt();
-    adapter.invalidate();
-    // Do not add stayAwake: Electron 43 can crash while cancelling its capture wake lock on Windows.
-    const image = await adapter.capturePage(rectangle, {
-      stayHidden: false,
-    });
-    lastActual = imageSizeDescription(image);
-    const actualSize = image.getSize();
-
-    if (
-      !image.isEmpty() &&
-      actualSize.width === expectedSize.width &&
-      actualSize.height === expectedSize.height
-    ) {
-      return image;
-    }
-  }
-
-  throw new Error(
-    `ページ画像の取得寸法が一致しません。期待: ${expectedSize.width}x${expectedSize.height}、実際: ${lastActual}`,
+  return captureAfterWarmup(
+    {
+      prepareCapture: () => adapter.prepareCapture(),
+      // Do not add stayAwake: Electron 43 can crash while cancelling its capture wake lock on Windows.
+      capture: () =>
+        adapter.capturePage(rectangle, {
+          stayHidden: false,
+        }),
+    },
+    (image) => {
+      const actualSize = image.getSize();
+      return (
+        !image.isEmpty() &&
+        actualSize.width === expectedSize.width &&
+        actualSize.height === expectedSize.height
+      );
+    },
+    (image) =>
+      new Error(
+        `ページ画像の取得寸法が一致しません。期待: ${expectedSize.width}x${expectedSize.height}、実際: ${imageSizeDescription(image)}`,
+      ),
   );
 }

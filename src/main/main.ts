@@ -32,6 +32,8 @@ const isHeadlessE2e =
 const needsVisibleHeadlessSurface =
   isHeadlessE2e &&
   (process.platform === 'linux' || process.platform === 'win32');
+const needsActiveCaptureSurface =
+  process.platform === 'win32' || needsVisibleHeadlessSurface;
 
 app.setName('FrameShot');
 if (process.platform === 'win32') {
@@ -98,6 +100,7 @@ async function createMainWindow(): Promise<void> {
       }
       sendAppShortcut(window, shortcut);
     },
+    needsActiveCaptureSurface,
   );
   const removeNavigationGuard = installMainWindowNavigationGuard({
     window,
@@ -111,11 +114,11 @@ async function createMainWindow(): Promise<void> {
     rendererRoot: MAIN_WINDOW_VITE_DEV_SERVER_URL
       ? undefined
       : bundledRendererRoot,
+    activateCaptureSurface: needsActiveCaptureSurface,
     ...(isHeadlessE2e
       ? {
           resolveOutputPath: async () =>
             path.join(app.getPath('userData'), 'e2e-export.png'),
-          prepareHeadlessCaptureSurface: needsVisibleHeadlessSurface,
         }
       : {}),
   });
