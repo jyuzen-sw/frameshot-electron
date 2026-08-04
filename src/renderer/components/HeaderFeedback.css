@@ -130,7 +130,8 @@
   border: 2px solid rgba(103, 86, 217, 0.22);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  animation: spin var(--loading-indicator-duration) linear infinite;
+  will-change: transform;
 }
 
 .header-feedback-copy {
@@ -208,6 +209,6 @@
 @media (prefers-reduced-motion: reduce) {
   .header-feedback-content,
   .header-feedback-spinner {
-    animation-duration: 1ms;
+    animation: none;
   }
 }

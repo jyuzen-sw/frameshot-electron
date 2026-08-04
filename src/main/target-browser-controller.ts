@@ -104,9 +104,13 @@ export class TargetBrowserController {
     return { ...this.state };
   }
 
-  public async navigate(input: string): Promise<NavigationState> {
+  public navigate(input: string): NavigationState {
     this.assertEnvironmentAvailable();
     const targetUrl = normalizeTargetUrl(input);
+    const webContents = this.view.webContents;
+    if (webContents.isLoading()) {
+      webContents.stop();
+    }
     this.state = {
       ...this.state,
       url: targetUrl,
@@ -115,8 +119,10 @@ export class TargetBrowserController {
       error: undefined,
     };
     this.emitState();
-    await this.view.webContents.loadURL(targetUrl);
-    this.refreshState(true);
+
+    // did-fail-load owns visible errors because this rejection also represents
+    // intentional cancellation when a newer URL replaces the current request.
+    void webContents.loadURL(targetUrl).catch(() => undefined);
     return this.navigationState;
   }
 
@@ -148,6 +154,15 @@ export class TargetBrowserController {
     } else {
       this.view.webContents.reload();
     }
+  }
+
+  public stopNavigation(): void {
+    if (this.disposed || this.reconfiguring || this.captureInProgress) return;
+    const webContents = this.view.webContents;
+    if (!webContents.isLoading()) return;
+
+    webContents.stop();
+    this.refreshState(false, false);
   }
 
   public setLayout(layout: TargetViewLayout): void {
@@ -702,12 +717,21 @@ export class TargetBrowserController {
     this.view.setVisible(true);
   }
 
-  private refreshState(clearError = false): void {
+  private refreshState(
+    clearError = false,
+    loadingOverride?: boolean,
+  ): void {
     const webContents = this.view.webContents;
+    const isLoading = loadingOverride ?? webContents.isLoading();
+    const currentUrl = webContents.getURL();
+    const committedUrl = currentUrl === 'about:blank' ? '' : currentUrl;
     this.state = {
-      url: webContents.getURL() || this.state.url,
+      url:
+        clearError || !isLoading
+          ? committedUrl || this.state.url
+          : this.state.url,
       title: webContents.getTitle() || '',
-      isLoading: webContents.isLoading(),
+      isLoading,
       canGoBack: webContents.navigationHistory.canGoBack(),
       canGoForward: webContents.navigationHistory.canGoForward(),
       error: clearError ? undefined : this.state.error,

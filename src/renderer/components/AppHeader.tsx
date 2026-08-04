@@ -13,6 +13,7 @@ import {
   ReloadIcon,
   SaveIcon,
   SlidersIcon,
+  XIcon,
 } from './Icons';
 import {
   HeaderFeedback,
@@ -36,6 +37,7 @@ interface AppHeaderProps {
   onBack: () => void;
   onForward: () => void;
   onReload: () => void;
+  onStop: () => void;
   onNavigationRetry: () => void;
   onNoticeDismiss: () => void;
   onDevicePreset: (preset: DevicePreset) => void;
@@ -62,6 +64,7 @@ export function AppHeader({
   onBack,
   onForward,
   onReload,
+  onStop,
   onNavigationRetry,
   onNoticeDismiss,
   onDevicePreset,
@@ -78,6 +81,7 @@ export function AppHeader({
     <header className="toolbar app-header">
       <HeaderFeedback
         busy={busy}
+        navigationLoading={navigation.isLoading}
         notice={notice}
         navigationError={navigation.error ?? null}
         onDismissNotice={onNoticeDismiss}
@@ -107,11 +111,16 @@ export function AppHeader({
           <button
             className="icon-button"
             type="button"
-            aria-label="再読み込み"
-            disabled={!navigation.url || isBusy}
-            onClick={onReload}
+            aria-label={
+              navigation.isLoading ? '読み込みを中止' : '再読み込み'
+            }
+            title={navigation.isLoading ? '読み込みを中止' : '再読み込み'}
+            disabled={
+              isBusy || (!navigation.isLoading && !navigation.url)
+            }
+            onClick={navigation.isLoading ? onStop : onReload}
           >
-            <ReloadIcon className={navigation.isLoading ? 'spin' : ''} />
+            {navigation.isLoading ? <XIcon /> : <ReloadIcon />}
           </button>
         </nav>
 
@@ -168,7 +177,7 @@ export function AppHeader({
             type="button"
             aria-label="画像をコピー"
             title="画像をコピー"
-            disabled={!navigation.url || isBusy}
+            disabled={!navigation.url || navigation.isLoading || isBusy}
             onClick={onCopy}
           >
             <CopyIcon />
@@ -179,7 +188,7 @@ export function AppHeader({
             type="button"
             aria-label="PNGを保存"
             title="PNGを保存"
-            disabled={!navigation.url || isBusy}
+            disabled={!navigation.url || navigation.isLoading || isBusy}
             onClick={onSave}
           >
             <SaveIcon />

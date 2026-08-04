@@ -23,6 +23,7 @@ const HANDLED_CHANNELS = [
   IPC.goBack,
   IPC.goForward,
   IPC.reload,
+  IPC.stopNavigation,
   IPC.exportImage,
   IPC.resetSession,
   IPC.openDevTools,
@@ -89,6 +90,11 @@ export function registerIpcHandlers({
   installHandle(IPC.reload, (event, ignoreCache) => {
     assertTrustedSender(event, mainWindow, trustedRendererUrl);
     targetBrowser.reload(Boolean(ignoreCache));
+  });
+
+  installHandle(IPC.stopNavigation, (event) => {
+    assertTrustedSender(event, mainWindow, trustedRendererUrl);
+    targetBrowser.stopNavigation();
   });
 
   installHandle(IPC.exportImage, async (event, rawSettings, rawDestination) => {

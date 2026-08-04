@@ -5,19 +5,22 @@ import { HeaderFeedback } from '../../src/renderer/components/HeaderFeedback';
 import type { TransientNotice } from '../../src/renderer/hooks/useTransientNotice';
 
 interface RenderFeedbackOptions {
-  busy?: 'navigate' | 'export' | 'session' | null;
+  busy?: 'export' | 'session' | null;
+  navigationLoading?: boolean;
   notice?: TransientNotice | null;
   navigationError?: string | null;
 }
 
 function renderFeedback({
   busy = null,
+  navigationLoading = false,
   notice = null,
   navigationError = null,
 }: RenderFeedbackOptions = {}): string {
   return renderToStaticMarkup(
     createElement(HeaderFeedback, {
       busy,
+      navigationLoading,
       notice,
       navigationError,
       onDismissNotice: vi.fn(),
@@ -40,6 +43,7 @@ describe('HeaderFeedback', () => {
   it('gives busy feedback priority over notices and navigation errors', () => {
     const markup = renderFeedback({
       busy: 'export',
+      navigationLoading: true,
       notice: { kind: 'success', message: '保存しました' },
       navigationError: '接続できません',
     });
@@ -50,6 +54,20 @@ describe('HeaderFeedback', () => {
     expect(markup).not.toContain('保存しました');
     expect(markup).not.toContain('接続できません');
     expect(markup).not.toContain('aria-label="閉じる"');
+  });
+
+  it('shows page loading independently from exclusive operations', () => {
+    const markup = renderFeedback({
+      navigationLoading: true,
+      notice: { kind: 'info', message: '表示サイズを適用しました' },
+      navigationError: '接続できません',
+    });
+
+    expect(markup).toContain('data-feedback-kind="busy"');
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain('ページを開いています…');
+    expect(markup).not.toContain('表示サイズを適用しました');
+    expect(markup).not.toContain('接続できません');
   });
 
   it('gives a transient notice priority over a navigation error', () => {

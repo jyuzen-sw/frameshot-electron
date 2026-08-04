@@ -8,10 +8,13 @@ import {
 } from './Icons';
 import './HeaderFeedback.css';
 
-export type HeaderBusyAction = 'navigate' | 'export' | 'session' | null;
+export type HeaderBusyAction = 'export' | 'session' | null;
+
+type ActiveBusyAction = Exclude<HeaderBusyAction, null> | 'navigate';
 
 interface HeaderFeedbackProps {
   busy: HeaderBusyAction;
+  navigationLoading: boolean;
   notice: TransientNotice | null;
   navigationError: string | null;
   onDismissNotice: () => void;
@@ -25,7 +28,7 @@ type FeedbackContent = {
   role: 'alert' | 'status';
 };
 
-function busyMessage(busy: Exclude<HeaderBusyAction, null>): string {
+function busyMessage(busy: ActiveBusyAction): string {
   if (busy === 'export') {
     return '最新のページから画像を書き出しています…';
   }
@@ -35,14 +38,17 @@ function busyMessage(busy: Exclude<HeaderBusyAction, null>): string {
 
 function resolveFeedback(
   busy: HeaderBusyAction,
+  navigationLoading: boolean,
   notice: TransientNotice | null,
   navigationError: string | null,
 ): FeedbackContent | null {
-  if (busy) {
+  const activeBusy: ActiveBusyAction | null =
+    busy ?? (navigationLoading ? 'navigate' : null);
+  if (activeBusy) {
     return {
       kind: 'busy',
       label: '処理中',
-      message: busyMessage(busy),
+      message: busyMessage(activeBusy),
       role: 'status',
     };
   }
@@ -83,12 +89,18 @@ function FeedbackIcon({
 
 export function HeaderFeedback({
   busy,
+  navigationLoading,
   notice,
   navigationError,
   onDismissNotice,
   onRetryNavigation,
 }: HeaderFeedbackProps): React.JSX.Element {
-  const feedback = resolveFeedback(busy, notice, navigationError);
+  const feedback = resolveFeedback(
+    busy,
+    navigationLoading,
+    notice,
+    navigationError,
+  );
 
   return (
     <div className="brand" aria-label="FrameShot">

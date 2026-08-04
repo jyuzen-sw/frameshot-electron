@@ -112,6 +112,7 @@ export interface FrameShotApi {
   goBack: () => Promise<void>;
   goForward: () => Promise<void>;
   reload: (ignoreCache?: boolean) => Promise<void>;
+  stopNavigation: () => Promise<void>;
   setTargetLayout: (layout: TargetViewLayout) => void;
   exportImage: (
     settings: CaptureSettings,
