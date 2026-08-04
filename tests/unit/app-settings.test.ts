@@ -4,6 +4,7 @@ import {
   restoreSettings,
 } from '../../src/renderer/App';
 import { DEFAULT_SETTINGS } from '../../src/shared/presets';
+import { normalizeCaptureGeometry } from '../../src/shared/layout';
 import type { CaptureSettings } from '../../src/shared/types';
 
 function legacySettings(
@@ -35,19 +36,41 @@ afterEach(() => {
 });
 
 describe('saved capture settings', () => {
-  it('prefers current v5 settings without changing desktop user values', () => {
-    const current = {
+  it('prefers current v6 settings without changing normalized user values', () => {
+    const current = normalizeCaptureGeometry({
       ...DEFAULT_SETTINGS,
       margin: 8,
       cornerRadius: 13,
       phoneFrameVariant: 'android' as const,
-    };
+    });
     installSettingsStorage({
-      'frameshot:settings:v5': current,
-      'frameshot:settings:v4': legacySettings(DEFAULT_SETTINGS),
+      'frameshot:settings:v6': current,
+      'frameshot:settings:v5': DEFAULT_SETTINGS,
     });
 
     expect(restoreSettings()).toEqual(current);
+  });
+
+  it('migrates a v5 desktop setting from its completed output size', () => {
+    const v5 = {
+      ...DEFAULT_SETTINGS,
+      outputWidth: 1600,
+      outputHeight: 1000,
+      viewportWidth: 1200,
+      viewportHeight: 800,
+      frameStyle: 'none' as const,
+      margin: 19,
+      captureScale: 1 as const,
+      showUrl: false,
+    };
+    const entries = installSettingsStorage({ 'frameshot:settings:v5': v5 });
+
+    expect(restoreSettings()).toEqual({
+      ...v5,
+      viewportWidth: 1562,
+      viewportHeight: 962,
+    });
+    expect(JSON.parse(entries.get('frameshot:settings:v5') ?? '')).toEqual(v5);
   });
 
   it.each([
@@ -92,7 +115,7 @@ describe('saved capture settings', () => {
     },
   );
 
-  it('adds the v5 frame field without changing v4 desktop settings', () => {
+  it('adds the phone variant and normalizes a v4 desktop setting', () => {
     const v4 = legacySettings({
       ...DEFAULT_SETTINGS,
       outputWidth: 1600,
@@ -109,6 +132,8 @@ describe('saved capture settings', () => {
     expect(restoreSettings()).toEqual({
       ...v4,
       phoneFrameVariant: 'iphone',
+      viewportWidth: 1562,
+      viewportHeight: 962,
     });
   });
 
@@ -137,10 +162,12 @@ describe('saved capture settings', () => {
     });
     installSettingsStorage({ 'frameshot:settings:v3': v3 });
 
-    expect(restoreSettings()).toEqual({
-      ...v3,
-      phoneFrameVariant: 'iphone',
-    });
+    expect(restoreSettings()).toEqual(
+      normalizeCaptureGeometry({
+        ...v3,
+        phoneFrameVariant: 'iphone',
+      }),
+    );
   });
 
   it('migrates only the v2 corner-radius default and preserves its margin', () => {
@@ -154,11 +181,13 @@ describe('saved capture settings', () => {
       'frameshot:settings:v2': v2,
     });
 
-    expect(restoreSettings()).toEqual({
-      ...v2,
-      phoneFrameVariant: 'iphone',
-      cornerRadius: 8,
-    });
+    expect(restoreSettings()).toEqual(
+      normalizeCaptureGeometry({
+        ...v2,
+        phoneFrameVariant: 'iphone',
+        cornerRadius: 8,
+      }),
+    );
     expect(JSON.parse(entries.get('frameshot:settings:v2') ?? '')).toEqual(
       v2,
     );

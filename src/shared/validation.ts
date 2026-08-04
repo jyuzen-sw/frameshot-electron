@@ -7,7 +7,7 @@ import type {
   PhoneFrameVariant,
   TargetViewLayout,
 } from './types';
-import { normalizeMobileOutput } from './layout';
+import { normalizeCaptureGeometry } from './layout';
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -85,33 +85,26 @@ export function validateCaptureSettings(value: unknown): CaptureSettings {
     throw new Error('撮影設定がありません。');
   }
   const input = value as Partial<CaptureSettings>;
+  const parsedDeviceMode = deviceMode(input.deviceMode);
 
   let settings: CaptureSettings = {
-    outputWidth: boundedInteger(
-      input.outputWidth,
-      'スクリーンショットサイズ 幅',
-      320,
-      7680,
-    ),
-    outputHeight: boundedInteger(
-      input.outputHeight,
-      'スクリーンショットサイズ 高さ',
-      320,
-      7680,
-    ),
-    viewportWidth: boundedInteger(
-      input.viewportWidth,
-      'ページ表示サイズ 幅',
-      240,
-      3840,
-    ),
-    viewportHeight: boundedInteger(
-      input.viewportHeight,
-      'ページ表示サイズ 高さ',
-      240,
-      3840,
-    ),
-    deviceMode: deviceMode(input.deviceMode),
+    outputWidth:
+      parsedDeviceMode === 'desktop'
+        ? boundedInteger(input.outputWidth, 'Webビューサイズ 幅', 320, 7680)
+        : finiteNumber(input.outputWidth, '書き出しサイズ 幅'),
+    outputHeight:
+      parsedDeviceMode === 'desktop'
+        ? boundedInteger(input.outputHeight, 'Webビューサイズ 高さ', 320, 7680)
+        : finiteNumber(input.outputHeight, '書き出しサイズ 高さ'),
+    viewportWidth:
+      parsedDeviceMode === 'mobile'
+        ? boundedInteger(input.viewportWidth, 'Webビューサイズ 幅', 240, 3840)
+        : finiteNumber(input.viewportWidth, 'ページviewport 幅'),
+    viewportHeight:
+      parsedDeviceMode === 'mobile'
+        ? boundedInteger(input.viewportHeight, 'Webビューサイズ 高さ', 240, 3840)
+        : finiteNumber(input.viewportHeight, 'ページviewport 高さ'),
+    deviceMode: parsedDeviceMode,
     frameStyle: frameStyle(input.frameStyle),
     phoneFrameVariant: phoneFrameVariant(input.phoneFrameVariant),
     margin: boundedInteger(input.margin, '余白', 0, 2000),
@@ -127,16 +120,30 @@ export function validateCaptureSettings(value: unknown): CaptureSettings {
     pauseAnimations: Boolean(input.pauseAnimations),
     showUrl: Boolean(input.showUrl),
   };
-  settings = normalizeMobileOutput(settings);
+  settings = normalizeCaptureGeometry(settings);
   const outputSizeName =
-    settings.deviceMode === 'mobile'
-      ? '自動出力サイズ'
-      : 'スクリーンショットサイズ';
+    settings.deviceMode === 'desktop' ? 'Webビューサイズ' : '書き出しサイズ';
   settings.outputWidth = boundedInteger(
     settings.outputWidth,
     `${outputSizeName} 幅`,
     320,
     7680,
+  );
+  const viewportSizeName =
+    settings.deviceMode === 'mobile'
+      ? 'Webビューサイズ'
+      : '算出後のページviewport';
+  settings.viewportWidth = boundedInteger(
+    settings.viewportWidth,
+    `${viewportSizeName} 幅`,
+    240,
+    3840,
+  );
+  settings.viewportHeight = boundedInteger(
+    settings.viewportHeight,
+    `${viewportSizeName} 高さ`,
+    240,
+    3840,
   );
   settings.outputHeight = boundedInteger(
     settings.outputHeight,
@@ -148,7 +155,7 @@ export function validateCaptureSettings(value: unknown): CaptureSettings {
   const outputPixels = settings.outputWidth * settings.outputHeight;
   if (outputPixels > MAX_CAPTURE_PIXELS) {
     throw new Error(
-      `${outputSizeName}は合計${MAX_CAPTURE_PIXELS.toLocaleString('ja-JP')}画素以下にしてください。`,
+      `書き出しサイズは合計${MAX_CAPTURE_PIXELS.toLocaleString('ja-JP')}画素以下にしてください。`,
     );
   }
 
@@ -159,7 +166,7 @@ export function validateCaptureSettings(value: unknown): CaptureSettings {
   const pagePixels = physicalViewportWidth * physicalViewportHeight;
   if (pagePixels > MAX_CAPTURE_PIXELS) {
     throw new Error(
-      `撮影倍率適用後のページ表示サイズは合計${MAX_CAPTURE_PIXELS.toLocaleString('ja-JP')}画素以下にしてください。`,
+      `撮影倍率適用後のWebビューサイズは合計${MAX_CAPTURE_PIXELS.toLocaleString('ja-JP')}画素以下にしてください。`,
     );
   }
 

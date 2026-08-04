@@ -81,7 +81,7 @@ describe('CompositionCanvas', () => {
 
   it.each([
     [
-      'https://example.com/dashboard',
+      'https://example.com/dashboard?tab=overview#chart',
       true,
       'is-secure',
       'lock',
@@ -118,6 +118,8 @@ describe('CompositionCanvas', () => {
       );
       expect(markup).toContain(`data-address-icon="${icon}"`);
       expect(markup).toContain(addressText);
+      expect(markup).not.toContain('?tab=overview');
+      expect(markup).not.toContain('#chart');
     },
   );
 

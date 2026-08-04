@@ -8,31 +8,28 @@ import type {
   PhoneFrameVariant,
 } from './types';
 import {
-  BROWSER_BAR_HEIGHT,
-  normalizeMobileOutput,
+  normalizeCaptureGeometry,
 } from './layout';
 import { MAX_CAPTURE_PIXELS } from './validation';
 
-export const DESKTOP_PRESET_MARGIN = 32;
+const DEFAULT_MARGIN = 32;
 
 function desktopResolutionPreset(
   id: string,
   name: string,
   outputWidth: number,
   outputHeight: number,
+  group: DesktopResolutionPreset['group'],
 ): DesktopResolutionPreset {
   return {
     kind: 'desktop',
     id,
     name,
+    group,
     deviceMode: 'desktop',
     frameStyle: 'browser',
     outputWidth,
     outputHeight,
-    viewportWidth: outputWidth - DESKTOP_PRESET_MARGIN * 2,
-    viewportHeight:
-      outputHeight - DESKTOP_PRESET_MARGIN * 2 - BROWSER_BAR_HEIGHT,
-    margin: DESKTOP_PRESET_MARGIN,
   };
 }
 
@@ -41,13 +38,60 @@ const FULL_HD_PRESET = desktopResolutionPreset(
   'Full HD',
   1920,
   1080,
+  'full-hd-and-below',
 );
 
 export const DESKTOP_RESOLUTION_PRESETS: readonly DesktopResolutionPreset[] = [
   FULL_HD_PRESET,
-  desktopResolutionPreset('desktop-wqhd', 'WQHD', 2560, 1440),
-  desktopResolutionPreset('desktop-uwqhd', 'UWQHD', 3440, 1440),
-  desktopResolutionPreset('desktop-4k-uhd', '4K UHD', 3840, 2160),
+  desktopResolutionPreset(
+    'desktop-default',
+    'Desktop',
+    1440,
+    900,
+    'full-hd-and-below',
+  ),
+  desktopResolutionPreset(
+    'desktop-laptop',
+    'Laptop',
+    1366,
+    768,
+    'full-hd-and-below',
+  ),
+  desktopResolutionPreset(
+    'desktop-compact',
+    'Compact',
+    1280,
+    800,
+    'full-hd-and-below',
+  ),
+  desktopResolutionPreset(
+    'desktop-hd',
+    'HD',
+    1280,
+    720,
+    'full-hd-and-below',
+  ),
+  desktopResolutionPreset(
+    'desktop-wqhd',
+    'WQHD',
+    2560,
+    1440,
+    'high-resolution',
+  ),
+  desktopResolutionPreset(
+    'desktop-uwqhd',
+    'UWQHD',
+    3440,
+    1440,
+    'high-resolution',
+  ),
+  desktopResolutionPreset(
+    'desktop-4k-uhd',
+    '4K UHD',
+    3840,
+    2160,
+    'high-resolution',
+  ),
 ];
 
 export const MOBILE_DEVICE_PRESETS: readonly MobileDevicePreset[] = [
@@ -118,15 +162,15 @@ export const DEVICE_PRESETS: readonly DevicePreset[] = [
   ...MOBILE_DEVICE_PRESETS,
 ];
 
-export const DEFAULT_SETTINGS: CaptureSettings = {
+export const DEFAULT_SETTINGS: CaptureSettings = normalizeCaptureGeometry({
   outputWidth: FULL_HD_PRESET.outputWidth,
   outputHeight: FULL_HD_PRESET.outputHeight,
-  viewportWidth: FULL_HD_PRESET.viewportWidth,
-  viewportHeight: FULL_HD_PRESET.viewportHeight,
+  viewportWidth: 240,
+  viewportHeight: 240,
   deviceMode: 'desktop',
   frameStyle: 'browser',
   phoneFrameVariant: 'iphone',
-  margin: FULL_HD_PRESET.margin,
+  margin: DEFAULT_MARGIN,
   cornerRadius: 8,
   shadow: 62,
   gradientFrom: '#e3f2e8',
@@ -138,7 +182,7 @@ export const DEFAULT_SETTINGS: CaptureSettings = {
   hideScrollbars: true,
   pauseAnimations: false,
   showUrl: true,
-};
+});
 
 export const GRADIENT_PRESETS: GradientPreset[] = [
   {
@@ -277,7 +321,7 @@ export function addInferredPhoneFrameVariant(value: unknown): unknown {
 export function migrateV4Settings(
   settings: CaptureSettings,
 ): CaptureSettings {
-  return normalizeMobileOutput(settings);
+  return normalizeCaptureGeometry(settings);
 }
 
 export function devicePresetsFor(
@@ -314,13 +358,8 @@ export function findDevicePreset(
   if (settings.deviceMode === 'desktop') {
     return DESKTOP_RESOLUTION_PRESETS.find(
       (preset) =>
-        preset.frameStyle === settings.frameStyle &&
-        preset.margin === settings.margin &&
         preset.outputWidth === settings.outputWidth &&
-        preset.outputHeight === settings.outputHeight &&
-        preset.viewportWidth === settings.viewportWidth &&
-        preset.viewportHeight === settings.viewportHeight &&
-        settings.showUrl,
+        preset.outputHeight === settings.outputHeight,
     );
   }
 
@@ -340,30 +379,30 @@ export function applyDevicePreset(
   preset: DevicePreset,
 ): CaptureSettings {
   if (preset.kind === 'desktop') {
-    const scaledViewportPixels =
-      preset.viewportWidth *
-      settings.captureScale *
-      preset.viewportHeight *
-      settings.captureScale;
-
-    return {
+    const next = normalizeCaptureGeometry({
       ...settings,
       outputWidth: preset.outputWidth,
       outputHeight: preset.outputHeight,
-      viewportWidth: preset.viewportWidth,
-      viewportHeight: preset.viewportHeight,
       deviceMode: preset.deviceMode,
       frameStyle: preset.frameStyle,
-      margin: preset.margin,
+      showUrl: true,
+    });
+    const scaledViewportPixels =
+      next.viewportWidth *
+      next.captureScale *
+      next.viewportHeight *
+      next.captureScale;
+
+    return {
+      ...next,
       captureScale:
         scaledViewportPixels > MAX_CAPTURE_PIXELS
           ? 1
-          : settings.captureScale,
-      showUrl: true,
+          : next.captureScale,
     };
   }
 
-  return normalizeMobileOutput({
+  return normalizeCaptureGeometry({
     ...settings,
     deviceMode: preset.deviceMode,
     frameStyle: preset.frameStyle,
@@ -384,7 +423,7 @@ export function applyCustomDeviceMode(
   const frameStyle = deviceMode === 'desktop' ? 'browser' : 'phone';
   const enteringMobile =
     deviceMode === 'mobile' && settings.deviceMode !== 'mobile';
-  return normalizeMobileOutput({
+  return normalizeCaptureGeometry({
     ...settings,
     deviceMode,
     frameStyle,

@@ -30,8 +30,11 @@ describe('normalizeTargetUrl', () => {
 
 describe('URL helpers', () => {
   it('extracts and formats a target URL', () => {
-    const url = 'https://example.com:8443/products?q=one';
+    const url = 'https://example.com:8443/products?q=one#details';
     expect(getHostname(url)).toBe('example.com');
-    expect(formatUrlForFrame(url)).toBe('example.com:8443/products?q=one');
+    expect(formatUrlForFrame(url)).toBe('example.com:8443/products');
+    expect(formatUrlForFrame('https://example.com/?q=one#details')).toBe(
+      'example.com',
+    );
   });
 });

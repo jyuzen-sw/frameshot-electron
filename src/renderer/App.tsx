@@ -29,15 +29,13 @@ import { AppHeader } from './components/AppHeader';
 import type { HeaderBusyAction } from './components/HeaderFeedback';
 import { LiveCanvas } from './components/LiveCanvas';
 import type { TargetSuspensionReason } from './components/CompositionCanvas';
-import {
-  SettingsPanel,
-  type SizeFocusTarget,
-} from './components/SettingsPanel';
+import { SettingsPanel } from './components/SettingsPanel';
 import { usePersistentState } from './hooks/usePersistentState';
 import { useTransientNotice } from './hooks/useTransientNotice';
 import './App.css';
 
-const SETTINGS_STORAGE_KEY = 'frameshot:settings:v5';
+const SETTINGS_STORAGE_KEY = 'frameshot:settings:v6';
+const V5_SETTINGS_STORAGE_KEY = 'frameshot:settings:v5';
 const V4_SETTINGS_STORAGE_KEY = 'frameshot:settings:v4';
 const V3_SETTINGS_STORAGE_KEY = 'frameshot:settings:v3';
 const V2_SETTINGS_STORAGE_KEY = 'frameshot:settings:v2';
@@ -82,7 +80,7 @@ function readStoredSettings(
 }
 
 function finalizeRestoredSettings(settings: CaptureSettings): CaptureSettings {
-  return validateCaptureSettings(migrateV4Settings(settings));
+  return validateCaptureSettings(settings);
 }
 
 export function restoreSettings(): CaptureSettings {
@@ -93,8 +91,14 @@ export function restoreSettings(): CaptureSettings {
     console.warn('Could not restore current settings:', error);
   }
   try {
+    const v5 = readStoredSettings(V5_SETTINGS_STORAGE_KEY);
+    if (v5) return finalizeRestoredSettings(migrateV4Settings(v5));
+  } catch (error) {
+    console.warn('Could not migrate v5 settings:', error);
+  }
+  try {
     const v4 = readStoredSettings(V4_SETTINGS_STORAGE_KEY, true);
-    if (v4) return finalizeRestoredSettings(v4);
+    if (v4) return finalizeRestoredSettings(migrateV4Settings(v4));
   } catch (error) {
     console.warn('Could not migrate v4 settings:', error);
   }
@@ -136,8 +140,6 @@ export function App(): React.JSX.Element {
   });
   const [floatingUi, setFloatingUi] = useState<FloatingUiState>(null);
   const [focusSizeRequest, setFocusSizeRequest] = useState(0);
-  const [focusSizeTarget, setFocusSizeTarget] =
-    useState<SizeFocusTarget>('page');
   const settingsPanelOpen = floatingUi?.kind === 'settings';
   const activeViewportMenu =
     floatingUi?.kind === 'viewport-menu'
@@ -267,7 +269,13 @@ export function App(): React.JSX.Element {
 
   const selectDevicePreset = useCallback(
     (preset: DevicePreset) => {
-      const next = applyDevicePreset(settings, preset);
+      let next: CaptureSettings;
+      try {
+        next = validateCaptureSettings(applyDevicePreset(settings, preset));
+      } catch (error) {
+        showError(error);
+        return;
+      }
       setSettings(next);
       const scaleAdjustment =
         next.captureScale !== settings.captureScale
@@ -277,25 +285,27 @@ export function App(): React.JSX.Element {
         kind: 'info',
         message:
           preset.kind === 'desktop'
-            ? `${preset.name}: スクリーンショットサイズ ${preset.outputWidth} × ${preset.outputHeight}、ページ表示サイズ ${preset.viewportWidth} × ${preset.viewportHeight} を適用しました。${scaleAdjustment}`
-            : `${preset.name}: ページ表示サイズ ${preset.viewportWidth} × ${preset.viewportHeight} を適用しました。`,
+            ? `${preset.name}: Webビューサイズ ${preset.outputWidth} × ${preset.outputHeight} を適用しました。${scaleAdjustment}`
+            : `${preset.name}: Webビューサイズ ${preset.viewportWidth} × ${preset.viewportHeight} を適用しました。`,
       });
     },
-    [settings, showNotice],
+    [settings, showError, showNotice],
   );
 
   const openCustomSize = useCallback(
     (deviceMode: DeviceMode) => {
-      setSettings((current) =>
-        applyCustomDeviceMode(current, deviceMode),
-      );
-      setFocusSizeTarget(
-        deviceMode === 'desktop' ? 'screenshot' : 'page',
-      );
+      try {
+        setSettings(
+          validateCaptureSettings(applyCustomDeviceMode(settings, deviceMode)),
+        );
+      } catch (error) {
+        showError(error);
+        return;
+      }
       setFloatingUi({ kind: 'settings' });
       setFocusSizeRequest((current) => current + 1);
     },
-    [],
+    [settings, showError],
   );
 
   const openViewportMenu = useCallback((deviceMode: DeviceMode) => {
@@ -485,7 +495,6 @@ export function App(): React.JSX.Element {
             currentHost={currentHost}
             certificateAllowed={certificateAllowed}
             focusSizeRequest={focusSizeRequest}
-            focusSizeTarget={focusSizeTarget}
             onSettingsChange={setSettings}
             onCertificateAllowed={(allowed) =>
               void setCertificateAllowed(allowed)
