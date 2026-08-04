@@ -3302,6 +3302,114 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
   }
 });
 
+test('@windows-clipboard copies a fixture image and keeps the app alive', async () => {
+  test.skip(
+    process.platform !== 'win32',
+    'This scenario requires the native Windows clipboard.',
+  );
+
+  const fixture = await startFixtureServer();
+  const tempDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'frameshot-windows-clipboard-e2e-'),
+  );
+  let app: RunningApp | null = null;
+  let scenarioError: unknown;
+
+  try {
+    app = await launchPackagedApp(tempDirectory);
+    await waitForMainUi(app.cdp);
+    await navigateFromMainUi(app.cdp, fixture.url);
+    await waitForMainText(app.cdp, 'FrameShot fixture — WebGL2 ready');
+
+    const settings = await app.cdp.evaluate<CaptureSettings>(`
+      JSON.parse(localStorage.getItem('frameshot:settings:v5'))
+    `);
+    expect(settings).toMatchObject({
+      deviceMode: 'desktop',
+      viewportHeight: 958,
+      viewportWidth: 1856,
+    });
+    const clipboardSettings: CaptureSettings = {
+      ...settings,
+      pauseAnimations: false,
+    };
+    const artboard = calculateCompositionLayout(clipboardSettings).artboard;
+
+    const result = await app.cdp.evaluate<ExportResult>(`
+      window.frameShot.exportImage(
+        ${JSON.stringify(clipboardSettings)},
+        'clipboard',
+      )
+    `);
+    expect(result).toMatchObject({
+      destination: 'clipboard',
+      completed: true,
+      width: artboard.width,
+      height: artboard.height,
+    });
+    expect(result.exportedAt).toEqual(expect.any(String));
+
+    const probe = await probeClipboardImage(
+      tempDirectory,
+      'native-windows-clipboard',
+    );
+    expect(probe).toMatchObject({
+      width: artboard.width,
+      height: artboard.height,
+    });
+    const markerPixels = await samplePngPixels(
+      app.cdp,
+      probe.pngPath,
+      compositionViewportSamplePoints(clipboardSettings),
+    );
+    const expectedMarkerPixels = [
+      [255, 0, 85, 255],
+      [0, 229, 255, 255],
+      [255, 214, 0, 255],
+      [140, 82, 255, 255],
+      [22, 163, 74, 255],
+    ] as const;
+    for (const [index, expectedPixel] of expectedMarkerPixels.entries()) {
+      expectPixelNear(markerPixels[index] ?? [], expectedPixel);
+    }
+
+    const stoppedAfterCopy = await waitForChildProcessToStop(app.child, 3_250);
+    expect(
+      stoppedAfterCopy,
+      `FrameShot stopped after the native clipboard copy (${childProcessResult(app.child)}).\n${app.output()}`,
+    ).toBe(false);
+    expect(
+      await app.cdp.evaluate<boolean>(`
+        window.frameShot.getPreferences().then(() => true)
+      `),
+    ).toBe(true);
+
+    const completedApp = app;
+    await stopPackagedApp(completedApp);
+    const closeResult = await completedApp.closed;
+    app = null;
+    expect(closeResult.code).toBe(0);
+    expect(closeResult.signal).toBeNull();
+    logE2e(
+      'Native Windows clipboard copy remained stable and exited normally.',
+    );
+  } catch (error) {
+    scenarioError = error;
+    if (app) {
+      logElectronOutput(app.output());
+    }
+    throw error;
+  } finally {
+    await cleanupScenario(
+      'native Windows clipboard',
+      app,
+      fixture.server,
+      tempDirectory,
+      scenarioError,
+    );
+  }
+});
+
 test('keeps target cookies only for the current app process', async () => {
   const fixture = await startFixtureServer();
   const tempDirectory = fs.mkdtempSync(

@@ -24,6 +24,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run package && playwright test",
+    "test:e2e:windows-clipboard": "playwright test --grep @windows-clipboard --workers=1 --retries=0",
     "verify": "npm run typecheck && npm run test",
     "verify:fuses": "node scripts/verify-fuses.mjs",
     "verify:windows-portable": "node scripts/verify-windows-portable.mjs",
