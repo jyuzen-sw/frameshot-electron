@@ -3814,10 +3814,14 @@ test('stops and replaces a stalled target navigation', async () => {
   }
 });
 
-test('@windows-clipboard copies a fixture image and keeps the app alive', async () => {
+test('@windows-capture @windows-clipboard repeatedly saves complete fixture images and preserves the native clipboard copy', async () => {
   test.skip(
     process.platform !== 'win32',
     'This scenario requires the native Windows clipboard.',
+  );
+  test.skip(
+    !HEADLESS_E2E,
+    'The repeated file exports require deterministic headless output paths.',
   );
 
   const fixture = await startFixtureServer();
@@ -3841,9 +3845,74 @@ test('@windows-clipboard copies a fixture image and keeps the app alive', async 
       viewportHeight: 958,
       viewportWidth: 1856,
     });
+    const mobileSettings = normalizeMobileOutput({
+      ...settings,
+      deviceMode: 'mobile',
+      frameStyle: 'phone',
+      phoneFrameVariant: 'iphone',
+      showUrl: false,
+      viewportHeight: 874,
+      viewportWidth: 402,
+    });
+    const expectedCornerPixels = [
+      [255, 0, 85, 255],
+      [0, 229, 255, 255],
+      [255, 214, 0, 255],
+      [140, 82, 255, 255],
+    ] as const;
+
+    for (let iteration = 0; iteration < 10; iteration += 1) {
+      const mobile = iteration % 2 === 1;
+      const captureScale = (Math.floor(iteration / 2) % 2) + 1 as 1 | 2;
+      const captureSettings: CaptureSettings = {
+        ...(mobile ? mobileSettings : settings),
+        captureScale,
+        pauseAnimations: false,
+        waitMs: 0,
+      };
+      const iterationArtboard =
+        calculateCompositionLayout(captureSettings).artboard;
+      const iterationResult = await app.cdp.evaluate<ExportResult>(`
+        window.frameShot.exportImage(
+          ${JSON.stringify(captureSettings)},
+          'file',
+        )
+      `);
+      expect(iterationResult).toMatchObject({
+        destination: 'file',
+        completed: true,
+        width: iterationArtboard.width,
+        height: iterationArtboard.height,
+      });
+      const iterationProbe = await exportedPng(
+        tempDirectory,
+        `windows-capture-${iteration}`,
+        iterationResult,
+      );
+      expect(iterationProbe).toMatchObject({
+        width: iterationArtboard.width,
+        height: iterationArtboard.height,
+      });
+      const iterationPixels = await samplePngPixels(
+        app.cdp,
+        iterationProbe.pngPath,
+        compositionViewportSamplePoints(captureSettings),
+      );
+      const expectedPixels = [
+        ...expectedCornerPixels,
+        mobile
+          ? ([220, 38, 38, 255] as const)
+          : ([22, 163, 74, 255] as const),
+      ] as const;
+      for (const [index, expectedPixel] of expectedPixels.entries()) {
+        expectPixelNear(iterationPixels[index] ?? [], expectedPixel);
+      }
+    }
+
     const clipboardSettings: CaptureSettings = {
       ...settings,
       pauseAnimations: false,
+      waitMs: 0,
     };
     const artboard = calculateCompositionLayout(clipboardSettings).artboard;
 
@@ -3875,10 +3944,7 @@ test('@windows-clipboard copies a fixture image and keeps the app alive', async 
       compositionViewportSamplePoints(clipboardSettings),
     );
     const expectedMarkerPixels = [
-      [255, 0, 85, 255],
-      [0, 229, 255, 255],
-      [255, 214, 0, 255],
-      [140, 82, 255, 255],
+      ...expectedCornerPixels,
       [22, 163, 74, 255],
     ] as const;
     for (const [index, expectedPixel] of expectedMarkerPixels.entries()) {
@@ -3903,7 +3969,7 @@ test('@windows-clipboard copies a fixture image and keeps the app alive', async 
     expect(closeResult.code).toBe(0);
     expect(closeResult.signal).toBeNull();
     logE2e(
-      'Native Windows clipboard copy remained stable and exited normally.',
+      'Repeated Windows file captures and the native clipboard copy remained complete and exited normally.',
     );
   } catch (error) {
     scenarioError = error;
@@ -3913,7 +3979,7 @@ test('@windows-clipboard copies a fixture image and keeps the app alive', async 
     throw error;
   } finally {
     await cleanupScenario(
-      'native Windows clipboard',
+      'native Windows capture and clipboard',
       app,
       fixture.server,
       tempDirectory,

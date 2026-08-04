@@ -67,9 +67,9 @@ jobs:
         run: npm ci
       - name: Package application
         run: npm run package
-      - name: Run Windows clipboard E2E test
+      - name: Run Windows capture and clipboard E2E test
         if: github.event_name == 'pull_request'
-        run: npm run test:e2e:windows-clipboard
+        run: npm run test:e2e:windows-capture
       - name: Run headless runtime E2E tests
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: npm run test:e2e:prepared
