@@ -1,9 +1,41 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs><linearGradient id="g" x1="70" y1="60" x2="450" y2="470" gradientUnits="userSpaceOnUse"><stop stop-color="#9ca8ff"/><stop offset="1" stop-color="#8054cb"/></linearGradient><radialGradient id="h" cx="0" cy="0" r="1" gradientTransform="translate(155 105) rotate(47) scale(240)"><stop stop-color="#fff" stop-opacity=".48"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>
+  <defs>
+    <linearGradient id="frame" x1="114" y1="92" x2="418" y2="426" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a9b3ff"/>
+      <stop offset="0.48" stop-color="#826df0"/>
+      <stop offset="1" stop-color="#6756d9"/>
+    </linearGradient>
+    <linearGradient id="letter" x1="230" y1="188" x2="398" y2="404" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e8eaff"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(136 96) rotate(46) scale(344 330)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7968df" stop-opacity="0.24"/>
+      <stop offset="0.65" stop-color="#7968df" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#7968df" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
   <rect width="512" height="512" rx="132" fill="#101522"/>
-  <rect x="42" y="42" width="428" height="428" rx="112" fill="url(#g)"/>
-  <rect x="42" y="42" width="428" height="428" rx="112" fill="url(#h)"/>
-  <path d="M155 172h55l20-31h82l20 31h33c30 0 54 24 54 54v132c0 30-24 54-54 54H147c-30 0-54-24-54-54V226c0-30 24-54 54-54h8Z" fill="none" stroke="#fff" stroke-width="30" stroke-linejoin="round"/>
-  <circle cx="256" cy="286" r="67" fill="none" stroke="#fff" stroke-width="30"/>
-  <path d="M374 223h1" stroke="#fff" stroke-width="30" stroke-linecap="round"/>
+  <rect width="512" height="512" rx="132" fill="url(#glow)"/>
+
+  <!-- An open capture frame: the outer F-shaped corner. -->
+  <path
+    d="M136 390V173c0-31 25-56 56-56h210"
+    fill="none"
+    stroke="url(#frame)"
+    stroke-width="62"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- The inner page and the FrameShot initial resolve into one bold F. -->
+  <path
+    d="M238 390V244c0-31 25-56 56-56h105M238 292h124"
+    fill="none"
+    stroke="url(#letter)"
+    stroke-width="62"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
 </svg>
