@@ -15,7 +15,7 @@ import {
 } from '@shared/presets';
 
 describe('built-in presets', () => {
-  it('starts a new capture as a framed Full HD screenshot', () => {
+  it('starts a new capture as a framed FHD screenshot', () => {
     expect(DEFAULT_SETTINGS).toMatchObject({
       outputWidth: 1920,
       outputHeight: 1080,
@@ -178,11 +178,11 @@ describe('built-in presets', () => {
         ],
       ),
     ).toEqual([
-      ['full-hd-and-below', 'Full HD', 1920, 1080],
-      ['full-hd-and-below', 'Desktop', 1440, 900],
-      ['full-hd-and-below', 'Laptop', 1366, 768],
-      ['full-hd-and-below', 'Compact', 1280, 800],
       ['full-hd-and-below', 'HD', 1280, 720],
+      ['full-hd-and-below', 'WXGA', 1280, 800],
+      ['full-hd-and-below', 'FWXGA', 1366, 768],
+      ['full-hd-and-below', 'WXGA+', 1440, 900],
+      ['full-hd-and-below', 'FHD', 1920, 1080],
       ['high-resolution', 'WQHD', 2560, 1440],
       ['high-resolution', 'UWQHD', 3440, 1440],
       ['high-resolution', '4K UHD', 3840, 2160],
@@ -248,7 +248,7 @@ describe('built-in presets', () => {
     });
   });
 
-  it('keeps a 2x page capture for Full HD', () => {
+  it('keeps a 2x page capture for FHD', () => {
     const fullHd = DESKTOP_RESOLUTION_PRESETS.find(
       (candidate) => candidate.id === 'desktop-full-hd',
     );
@@ -336,9 +336,14 @@ describe('built-in presets', () => {
   });
 
   it('matches desktop presets by size independently from frame and margin', () => {
+    const fullHdPreset = DESKTOP_RESOLUTION_PRESETS.find(
+      (candidate) => candidate.id === 'desktop-full-hd',
+    );
+    expect(fullHdPreset).toBeDefined();
+
     const fullHd = applyDevicePreset(
       DEFAULT_SETTINGS,
-      DESKTOP_RESOLUTION_PRESETS[0],
+      fullHdPreset!,
     );
     const pixel = applyDevicePreset(
       DEFAULT_SETTINGS,

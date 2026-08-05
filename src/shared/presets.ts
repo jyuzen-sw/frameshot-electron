@@ -35,35 +35,13 @@ function desktopResolutionPreset(
 
 const FULL_HD_PRESET = desktopResolutionPreset(
   'desktop-full-hd',
-  'Full HD',
+  'FHD',
   1920,
   1080,
   'full-hd-and-below',
 );
 
 export const DESKTOP_RESOLUTION_PRESETS: readonly DesktopResolutionPreset[] = [
-  FULL_HD_PRESET,
-  desktopResolutionPreset(
-    'desktop-default',
-    'Desktop',
-    1440,
-    900,
-    'full-hd-and-below',
-  ),
-  desktopResolutionPreset(
-    'desktop-laptop',
-    'Laptop',
-    1366,
-    768,
-    'full-hd-and-below',
-  ),
-  desktopResolutionPreset(
-    'desktop-compact',
-    'Compact',
-    1280,
-    800,
-    'full-hd-and-below',
-  ),
   desktopResolutionPreset(
     'desktop-hd',
     'HD',
@@ -71,6 +49,28 @@ export const DESKTOP_RESOLUTION_PRESETS: readonly DesktopResolutionPreset[] = [
     720,
     'full-hd-and-below',
   ),
+  desktopResolutionPreset(
+    'desktop-compact',
+    'WXGA',
+    1280,
+    800,
+    'full-hd-and-below',
+  ),
+  desktopResolutionPreset(
+    'desktop-laptop',
+    'FWXGA',
+    1366,
+    768,
+    'full-hd-and-below',
+  ),
+  desktopResolutionPreset(
+    'desktop-default',
+    'WXGA+',
+    1440,
+    900,
+    'full-hd-and-below',
+  ),
+  FULL_HD_PRESET,
   desktopResolutionPreset(
     'desktop-wqhd',
     'WQHD',
