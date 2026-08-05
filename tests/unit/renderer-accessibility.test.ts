@@ -153,7 +153,7 @@ describe('renderer selection accessibility', () => {
     );
   });
 
-  it('groups Full HD and lower desktop choices separately from high resolutions', () => {
+  it('groups FHD and lower desktop choices separately from high resolutions', () => {
     const markup = renderToStaticMarkup(
       createElement(ViewportMenuList, {
         deviceMode: 'desktop',
@@ -169,18 +169,18 @@ describe('renderer selection accessibility', () => {
       'aria-label="Desktop Webビューサイズプリセット"',
     );
     expect(markup).toContain(
-      'id="viewport-desktop-full-hd-and-below-heading">Full HD以下</span>',
+      'id="viewport-desktop-full-hd-and-below-heading">FHD以下</span>',
     );
     expect(markup).toContain(
       'id="viewport-desktop-high-resolution-heading">高解像度</span>',
     );
-    expect(buttonMarkup(markup, 'Full HD')).toContain(
+    expect(buttonMarkup(markup, 'FHD')).toContain(
       '1920 × 1080',
     );
-    expect(buttonMarkup(markup, 'Full HD')).toContain(
+    expect(buttonMarkup(markup, 'FHD')).toContain(
       'aria-checked="true"',
     );
-    expect(buttonMarkup(markup, 'Desktop')).toContain('1440 × 900');
+    expect(buttonMarkup(markup, 'WXGA+')).toContain('1440 × 900');
     expect(buttonMarkup(markup, '<b>HD</b>')).toContain('1280 × 720');
   });
 

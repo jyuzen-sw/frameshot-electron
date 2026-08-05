@@ -3019,9 +3019,9 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           document.querySelectorAll(
             '[data-device-mode="desktop"] [role="menuitemradio"]',
           ),
-        ).find((button) => button.querySelector('b')?.textContent === 'Desktop');
+        ).find((button) => button.querySelector('b')?.textContent === 'WXGA+');
         if (!(preset instanceof HTMLButtonElement)) {
-          throw new Error('The Desktop screenshot preset was not found.');
+          throw new Error('The WXGA+ screenshot preset was not found.');
         }
         preset.click();
       })()
@@ -3127,9 +3127,9 @@ test('opens a WebGL2 page and exports the latest shared canvas', async () => {
           document.querySelectorAll(
             '[data-device-mode="desktop"] [role="menuitemradio"]',
           ),
-        ).find((button) => button.querySelector('b')?.textContent === 'Full HD');
+        ).find((button) => button.querySelector('b')?.textContent === 'FHD');
         if (!(preset instanceof HTMLButtonElement)) {
-          throw new Error('The Full HD screenshot preset was not found.');
+          throw new Error('The FHD screenshot preset was not found.');
         }
         preset.click();
       })()

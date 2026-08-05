@@ -12,7 +12,7 @@ import {
 import { DEFAULT_SETTINGS } from '@shared/presets';
 
 describe('calculateCompositionLayout', () => {
-  it('fits the default Full HD browser and margin into a 1920x1080 screenshot', () => {
+  it('fits the default FHD browser and margin into a 1920x1080 screenshot', () => {
     const browser = calculateCompositionLayout(DEFAULT_SETTINGS);
 
     expect(browser.artboard).toEqual({

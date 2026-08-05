@@ -79,7 +79,7 @@ export function ViewportMenuList({
       ? [
           {
             id: 'full-hd-and-below',
-            label: 'Full HD以下',
+            label: 'FHD以下',
             presets: presets.filter(
               (preset) =>
                 preset.kind === 'desktop' &&
