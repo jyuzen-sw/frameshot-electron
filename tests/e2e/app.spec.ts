@@ -3814,14 +3814,10 @@ test('stops and replaces a stalled target navigation', async () => {
   }
 });
 
-test('@windows-capture @windows-clipboard repeatedly saves complete fixture images and preserves the native clipboard copy', async () => {
+test('@windows-capture @windows-clipboard preserves the native clipboard copy and repeatedly saves complete fixture images headlessly', async () => {
   test.skip(
     process.platform !== 'win32',
     'This scenario requires the native Windows clipboard.',
-  );
-  test.skip(
-    !HEADLESS_E2E,
-    'The repeated file exports require deterministic headless output paths.',
   );
 
   const fixture = await startFixtureServer();
@@ -3861,7 +3857,8 @@ test('@windows-capture @windows-clipboard repeatedly saves complete fixture imag
       [140, 82, 255, 255],
     ] as const;
 
-    for (let iteration = 0; iteration < 10; iteration += 1) {
+    const captureIterations = HEADLESS_E2E ? 10 : 0;
+    for (let iteration = 0; iteration < captureIterations; iteration += 1) {
       const mobile = iteration % 2 === 1;
       const captureScale = (Math.floor(iteration / 2) % 2) + 1 as 1 | 2;
       const captureSettings: CaptureSettings = {
@@ -3969,7 +3966,9 @@ test('@windows-capture @windows-clipboard repeatedly saves complete fixture imag
     expect(closeResult.code).toBe(0);
     expect(closeResult.signal).toBeNull();
     logE2e(
-      'Repeated Windows file captures and the native clipboard copy remained complete and exited normally.',
+      HEADLESS_E2E
+        ? 'Repeated Windows file captures and the native clipboard copy remained complete and exited normally.'
+        : 'The native Windows clipboard copy remained complete and exited normally.',
     );
   } catch (error) {
     scenarioError = error;
