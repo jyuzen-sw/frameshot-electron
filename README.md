@@ -76,7 +76,7 @@ FrameShotは、自分で管理しているサイトや信頼できるサイト�
 
 ## 開発したい方へ
 
-セットアップやテスト、ビルド、リリースについては[`DEVELOPMENT.md`](DEVELOPMENT.md)、詳しい設計については[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)をご覧ください。
+セットアップやテスト、ビルド、リリースについては[開発ガイド](docs/DEVELOPMENT.md)、詳しい設計については[アーキテクチャ](docs/ARCHITECTURE.md)をご覧ください。
 
 ## ライセンス
 

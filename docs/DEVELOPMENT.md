@@ -1,6 +1,6 @@
 # FrameShot 開発ガイド
 
-FrameShotのセットアップ、検証、ビルド、リリースに関する情報をまとめています。利用方法は[`README.md`](README.md)、プロセス間の信頼境界を含む詳しい設計は[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)を参照してください。
+FrameShotのセットアップ、検証、ビルド、リリースに関する情報をまとめています。利用方法は[`README.md`](../README.md)、プロセス間の信頼境界を含む詳しい設計は[`ARCHITECTURE.md`](ARCHITECTURE.md)を参照してください。
 
 ## 必要環境
 
