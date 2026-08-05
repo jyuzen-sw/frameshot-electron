@@ -1,7 +1,7 @@
 {
   "name": "frameshot-electron",
   "productName": "FrameShot",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "A focused Windows app for creating polished promotional screenshots of self-hosted web apps.",
   "main": ".vite/build/main.js",
   "author": "FrameShot contributors",
