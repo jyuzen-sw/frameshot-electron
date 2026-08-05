@@ -68,7 +68,12 @@ export async function captureAfterWarmup<TResult>(
   await adapter.prepareCapture();
   // DOM readiness does not guarantee that Chromium has completed a heavy
   // compositor frame, so the first capture only warms the new surface.
-  await adapter.capture();
+  try {
+    await adapter.capture();
+  } catch {
+    // The discarded warmup must not let a transient capture failure consume
+    // either of the validated capture candidates.
+  }
 
   await adapter.prepareCapture();
   let lastResult = await adapter.capture();

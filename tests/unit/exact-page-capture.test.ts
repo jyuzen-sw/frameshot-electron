@@ -41,6 +41,34 @@ describe('captureExactPage', () => {
     );
   });
 
+  it('continues with a validated capture when the warmup capture fails', async () => {
+    const expected = image(2880, 1800);
+    const adapter = adapterWith([expected]);
+    vi.mocked(adapter.capturePage).mockRejectedValueOnce(
+      new Error('warmup capture failed'),
+    );
+
+    await expect(
+      captureExactPage(adapter, { width: 2880, height: 1800 }),
+    ).resolves.toBe(expected);
+    expect(adapter.prepareSurface).toHaveBeenCalledTimes(1);
+    expect(adapter.prepareCapture).toHaveBeenCalledTimes(2);
+    expect(adapter.capturePage).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports a failure from a validated capture', async () => {
+    const captureError = new Error('validated capture failed');
+    const adapter = adapterWith([]);
+    vi.mocked(adapter.capturePage)
+      .mockResolvedValueOnce(image(2880, 1800))
+      .mockRejectedValueOnce(captureError);
+
+    await expect(
+      captureExactPage(adapter, { width: 2880, height: 1800 }),
+    ).rejects.toBe(captureError);
+    expect(adapter.capturePage).toHaveBeenCalledTimes(2);
+  });
+
   it('repaints and retries after receiving a stale-size candidate', async () => {
     const initialPaint = image(2880, 1800);
     const expected = image(2880, 1800);
