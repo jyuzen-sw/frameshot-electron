@@ -24,6 +24,7 @@ import {
   installAppProtocol,
 } from './app-protocol';
 import { assertImageClipboardSupported } from './clipboard-image';
+import { captureAfterWarmup } from './exact-page-capture';
 import { ExclusiveOperation } from './exclusive-operation';
 import {
   EXPORT_PARTITION,
@@ -40,7 +41,7 @@ interface ExportServiceOptions {
   resolveOutputPath?: (
     settings: CaptureSettings,
   ) => Promise<string | undefined>;
-  prepareHeadlessCaptureSurface?: boolean;
+  activateCaptureSurface?: boolean;
 }
 
 const EXPORT_STEP_TIMEOUT_MS = 10_000;
@@ -60,6 +61,10 @@ const WAIT_FOR_CAPTURE_SURFACE_SCRIPT = `Promise.race([
   }),
   new Promise((resolve) => setTimeout(resolve, 250)),
 ])`;
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
 
 async function withExportTimeout<T>(
   operation: Promise<T>,
@@ -131,6 +136,18 @@ function payloadScript(payload: ExportRenderPayload): string {
     }
     return render(${serialized});
   })()`;
+}
+
+function hasExpectedAspectRatio(
+  actual: { width: number; height: number },
+  expected: { width: number; height: number },
+): boolean {
+  if (actual.width <= 0 || actual.height <= 0) return false;
+  return (
+    Math.abs(
+      actual.width / actual.height - expected.width / expected.height,
+    ) <= 0.001
+  );
 }
 
 export class ExportService {
@@ -281,6 +298,13 @@ export class ExportService {
         backgroundColor: '#000000',
         paintWhenInitiallyHidden: true,
         enableLargerThanScreen: true,
+        ...(this.options.activateCaptureSurface
+          ? {
+              focusable: false,
+              skipTaskbar: true,
+              ...(process.platform === 'win32' ? { opacity: 0 } : {}),
+            }
+          : {}),
         webPreferences: {
           session: this.exportSession,
           nodeIntegration: false,
@@ -318,6 +342,13 @@ export class ExportService {
         ),
         '書き出しキャンバスの初期化',
       );
+      if (this.options.activateCaptureSurface) {
+        exportWindow.setContentSize(
+          settings.outputWidth,
+          settings.outputHeight,
+        );
+        exportWindow.showInactive();
+      }
       await withExportTimeout(
         exportWindow.webContents.executeJavaScript(
           payloadScript(payload),
@@ -325,22 +356,6 @@ export class ExportService {
         ),
         '書き出しキャンバスの描画',
       );
-
-      if (this.options.prepareHeadlessCaptureSurface) {
-        exportWindow.show();
-        exportWindow.setContentSize(
-          settings.outputWidth,
-          settings.outputHeight,
-        );
-        exportWindow.webContents.invalidate();
-        await withExportTimeout(
-          exportWindow.webContents.executeJavaScript(
-            WAIT_FOR_CAPTURE_SURFACE_SCRIPT,
-            true,
-          ),
-          '書き出し画面の再描画',
-        );
-      }
 
       const captured = await this.captureExportWindow(
         exportWindow,
@@ -377,12 +392,40 @@ export class ExportService {
     exportWindow: BrowserWindow,
     artboard: CompositionLayout['artboard'],
   ): Promise<NativeImage> {
-    // Do not add stayAwake: Electron 43 can crash while cancelling its capture wake lock on Windows.
-    return withExportTimeout(
-      exportWindow.webContents.capturePage(artboard, {
-        stayHidden: !this.options.prepareHeadlessCaptureSurface,
-      }),
-      '完成画像の取得',
+    return captureAfterWarmup(
+      {
+        prepareCapture: async () => {
+          exportWindow.webContents.invalidate();
+          await withExportTimeout(
+            exportWindow.webContents.executeJavaScript(
+              WAIT_FOR_CAPTURE_SURFACE_SCRIPT,
+              true,
+            ),
+            '書き出し画面の再描画',
+          );
+          await delay(50);
+        },
+        // Do not add stayAwake: Electron 43 can crash while cancelling its capture wake lock on Windows.
+        capture: () =>
+          withExportTimeout(
+            exportWindow.webContents.capturePage(artboard, {
+              stayHidden: !this.options.activateCaptureSurface,
+            }),
+            '完成画像の取得',
+          ),
+      },
+      (image) =>
+        !image.isEmpty() &&
+        hasExpectedAspectRatio(image.getSize(), artboard),
+      (image) => {
+        if (image.isEmpty()) {
+          return new Error('完成画像の生成に失敗しました。');
+        }
+        const actual = image.getSize();
+        return new Error(
+          `完成画像の取得比率が一致しません。期待: ${artboard.width}x${artboard.height}、実際: ${actual.width}x${actual.height}`,
+        );
+      },
     );
   }
 

@@ -110,21 +110,24 @@ RendererのCSSはglobal tokens・reset、App、AppHeader、HeaderFeedback、View
 
 保存またはコピーの操作ごとに、次の処理を最初から行います。
 
-1. 対象ビューを一時的に非表示にする
+1. 対象ビューを操作Windowから一時的な撮影用`BaseWindow`へ移す
 2. 指定された論理ビューポートと1×/2×倍率を適用する
-3. Webフォント、2フレーム、ユーザー指定の待機時間を待つ
-4. 必要に応じてスクロールバー、キャレット、アニメーションを一時的に抑制する
-5. `capturePage()` で最新のページ画像を取得する
-6. UUID tokenを発行し、ページPNGを `frameshot-export:` resource storeへ登録する
-7. 非永続・cache無効のexport sessionを使う、完成サイズの非表示BrowserWindowで、操作UIと同じReact bundleを `#export` モードで読み込む
-8. `CompositionCanvas` のページ領域だけを一度取得可能なページPNGへ差し替える
-9. Webフォントとページ画像の描画完了後に、共有レイアウトのアートボード矩形を `capturePage()` へ渡して完成画像を取得する
-10. OSの表示倍率に差があれば、最終画像だけをアートボードの実寸へ正規化する
-11. 成功・失敗にかかわらずtoken、ページPNG、非表示ウィンドウを破棄する
+3. 必要に応じてスクロールバー、キャレット、アニメーションを一時的に抑制する
+4. Windowsでは撮影用Windowを透明・タスクバー非表示・フォーカス不可のまま描画対象にし、対象viewへ撮影寸法を再通知する
+5. Webフォントとユーザー指定の待機時間を1回だけ待つ
+6. 再描画後の最初の`capturePage()`をsurfaceのウォームアップとして破棄し、次の取得を寸法検証済みページ画像として採用する
+7. UUID tokenを発行し、ページPNGを `frameshot-export:` resource storeへ登録する
+8. 非永続・cache無効のexport sessionを使う完成サイズのBrowserWindowで、操作UIと同じReact bundleを `#export` モードで読み込む
+9. `CompositionCanvas` のページ領域だけを一度取得可能なページPNGへ差し替える
+10. Webフォントとページ画像の読み込み後、最初のアートボード取得を破棄し、再描画後の比率検証済み画像を完成画像として採用する
+11. OSの表示倍率に差があれば、最終画像だけをアートボードの実寸へ正規化する
+12. 成功・失敗にかかわらずtoken、ページPNG、一時Windowを破棄し、対象ビューを操作Windowへ戻す
 
 ページ画像には `no-store`、`nosniff`、`no-referrer`を適用します。Renderer bundleには厳格なCSPを適用し、ページPNGをOSの一時ファイルへ書き込みません。完成PNGは明示的な保存ダイアログまたはクリップボード操作だけでアプリ外へ出ます。保存ファイル名、完了・キャンセル結果、通知にはアートボードの実寸を使用します。
 
 書き出しは1件ずつ直列化します。出力画像と、倍率適用後のページ画像には、それぞれ8,294,400画素の上限を設けています。
+
+DOM、画像、フォントの読み込み完了だけでは重いページのChromium compositor完了を保証できないため、対象ページと完成画像の両方でウォームアップ取得を行います。対象ページでは、操作画面へ戻した際の遅延リサイズが次の撮影寸法を上書きしないよう、各取得前に1pxのresize pulseを挟んで期待boundsを再適用します。黒色率や画像ハッシュによる判定は、正当な黒背景や動画・canvasを誤判定するため使用しません。SPAや通信などページ固有の完了条件は推測せず、必要な待機は利用者の撮影待機時間で指定します。
 
 ## メモリ寿命
 
@@ -156,7 +159,7 @@ Electron Fuseは次を強制します。
 
 `LoadBrowserProcessSpecificV8Snapshot`だけは無効です。このFuseを有効にするとmain process用の `browser_v8_context_snapshot.bin` が必須ですが、検証したElectron 43配布物には同梱されておらず、ビルドは起動時にfatal errorになりました。Windows成果物へ専用snapshotを生成・同梱する工程を用意するまでは、全rendererでNode integrationを無効にし、context isolationとsandboxを維持します。
 
-公開配布ターゲットはWindows x64だけです。pull requestと `main` pushではLinux上でNode.js 26、`npm ci`、全severityのaudit、型検査、単体テストを行います。`main` pushではWindowsとLinux/Xvfbのパッケージ済みアプリを使い、WebGL2、インメモリ合成、非永続sessionの同じE2Eを検証します。
+公開配布ターゲットはWindows x64だけです。pull requestと `main` pushではLinux上でNode.js 26、`npm ci`、全severityのaudit、型検査、単体テストを行います。pull requestのWindows jobでは、1×／2×とDesktop／Mobileを切り替える10回の保存とnative clipboardコピーをretryなしで検証します。`main` pushではWindowsとLinuxのパッケージ済みアプリを使い、WebGL2、インメモリ合成、非永続sessionの同じE2Eを検証します。
 
 release workflowは `validate`、`build-windows`、`publish` の順に実行します。`validate`は信頼済みの `main` をcheckoutして初回メタデータ検証コードを読み込み、タグcheckout内のverifierは実行しません。そのうえで、tagが `^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$` に一致する署名付きannotated tagであり、tag objectと直接参照先commitのGitHub署名検証結果がともにVerifiedかつvalidであることを確認します。さらに、タグのversionと `package.json` のversionが一致し、対象commitが `main` のHEADであることを検証します。lightweight tag、tag chain、leading zero、prerelease、検証情報の欠損はfail closedで拒否します。
 

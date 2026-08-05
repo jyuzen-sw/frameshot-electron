@@ -130,16 +130,16 @@ BrowserWindow（React製の操作UI）
 TargetBrowserController.capturePage() → 最新のページPNG
                  │
                  ▼
-非表示のExport BrowserWindow（同じReact bundle）
+一時Export BrowserWindow（同じReact bundle）
 └─ CompositionCanvas（同じマークアップ・CSS）
    └─ ページ部分だけframeshot-export:画像へ差し替え
                  │
                  └─ capturePage(Artboard) → 可変寸法の完成PNG
 ```
 
-操作UIは本番ビルドでは `frameshot-app://app/` から配信され、外部通信を許可しないCSPを適用します。対象ページとは別のWebContentsで、ページ側にはNode.jsやIPC APIを公開しません。ライブ表示と非表示の書き出しRendererは同じ `CompositionCanvas` とCSSを使い、後者だけがページ領域を `frameshot-export:` のインメモリ画像へ差し替えます。書き出しWindowは完成サイズで描画し、共有レイアウトが算出したアートボードだけを取得して正確な実寸へ正規化します。
+操作UIは本番ビルドでは `frameshot-app://app/` から配信され、外部通信を許可しないCSPを適用します。対象ページとは別のWebContentsで、ページ側にはNode.jsやIPC APIを公開しません。ライブ表示と書き出しRendererは同じ `CompositionCanvas` とCSSを使い、後者だけがページ領域を `frameshot-export:` のインメモリ画像へ差し替えます。書き出しWindowは完成サイズで描画し、共有レイアウトが算出したアートボードだけを取得して正確な実寸へ正規化します。
 
-ページ取得時は、操作中の `WebContentsView` を一時的な非表示 `BaseWindow` へ移し、指定した撮影倍率の物理寸法で再描画します。取得画像が空、または期待寸法と異なる場合は再試行し、古いプレビューsurfaceを引き伸ばして保存しません。完了後は同じviewを操作UIへ戻すため、スクロールやログイン状態は維持されます。
+ページ取得時は、操作中の `WebContentsView` を一時的な `BaseWindow` へ移し、指定した撮影倍率の物理寸法で再描画します。WindowsではこのWindowと完成画像用Windowを、透明・タスクバー非表示・フォーカス不可のまま描画対象にします。対象viewは各取得前に撮影寸法を再通知し、両段階とも最初の取得画像はsurfaceのウォームアップとして破棄して、再描画後の画像だけを使用します。取得画像が空、期待寸法と異なる、または完成画像の比率が異なる場合は1回再試行し、不完全な画像を保存・コピーしません。完了後は同じviewを操作UIへ戻すため、スクロールやログイン状態は維持されます。
 
 詳しくは [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) を参照してください。
 
@@ -191,6 +191,7 @@ npm run make:windows  # Windows x64用Squirrel成果物をローカル生成
 npm run make:windows:portable # Windows x64用portable exeを生成
 npm run generate:windows-icon # SVGからWindowsアイコンを再生成
 npm run test:e2e      # パッケージ化後、Windowを表示せずPlaywrightでE2E
+npm run test:e2e:windows-capture # Windowsで反復保存・clipboardをretryなしで検証
 npm run verify        # typecheck + unit test
 npm run verify:fuses  # パッケージ済みElectron Fuseを検証
 npm run verify:windows-portable # portable exeの名前とPE構造を検証
@@ -198,7 +199,7 @@ npm run verify:windows-portable # portable exeの名前とPE構造を検証
 
 成果物は `out/` 以下に生成されます。
 
-通常のE2EはElectronのheadless backendを使用し、保存ダイアログやOSクリップボードへ依存せず、テスト専用user data内のPNGを検証します。Windows Actionsでは専用ケースを実行し、別Electron processからOSクリップボード上の画像とコピー後のFrameShot process・IPCの生存を確認します。LinuxではOzone headlessを使い、`DISPLAY`と`WAYLAND_DISPLAY`を渡さず実行します。WSL以外でGUI displayとOSクリップボードを利用できる環境では、`FRAMESHOT_E2E_HEADED=1`を設定して従来のheaded検証も実行できます。
+通常のE2EはElectronのheadless backendを使用し、保存ダイアログやOSクリップボードへ依存せず、テスト専用user data内のPNGを検証します。Windows Actionsでは1×／2×とDesktop／Mobileを切り替えながら10回連続保存し、四隅と中央のpixelを確認します。続けて別Electron processからOSクリップボード上の画像とコピー後のFrameShot process・IPCの生存を確認します。LinuxではOzone headlessを使い、`DISPLAY`と`WAYLAND_DISPLAY`を渡さず実行します。WSL以外でGUI displayとOSクリップボードを利用できる環境では、`FRAMESHOT_E2E_HEADED=1`を設定して従来のheaded検証も実行できます。
 
 現在の公開配布ターゲットはWindows x64だけです。GitHub Releaseには、インストーラー不要の単一ファイル `FrameShot-N.N.N-Windows-x64-Portable.exe` だけを添付します。Electron ForgeによるSquirrel用の `FrameShot-Setup.exe`、NuGetパッケージ、`RELEASES` のローカル生成経路は維持しますが、Squirrel成果物とLinux packageはGitHub Releaseの対象外です。Electron FuseでRunAsNode、`NODE_OPTIONS`、CLI inspect、ASAR外からのアプリ読込を無効化し、ASAR integrityとCookie暗号化を有効化しています。CIはpull requestと `main` pushでLinux上のaudit、型検査、単体テストを実行し、`main` pushではWindowsとLinuxのパッケージ済みアプリをheadless E2Eで検証します。
 

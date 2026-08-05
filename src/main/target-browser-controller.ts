@@ -89,6 +89,7 @@ export class TargetBrowserController {
     preferences: PreferencesStore,
     onState: (state: NavigationState) => void,
     onShortcut: (shortcut: AppShortcut) => void,
+    private readonly activateCaptureSurface = false,
   ) {
     this.preferences = preferences;
     this.onState = onState;
@@ -206,15 +207,32 @@ export class TargetBrowserController {
           focusable: false,
           enableLargerThanScreen: true,
           backgroundColor: '#000000',
+          ...(this.activateCaptureSurface
+            ? {
+                skipTaskbar: true,
+                ...(process.platform === 'win32' ? { opacity: 0 } : {}),
+              }
+            : {}),
         });
         this.captureHost = captureHost;
         this.moveTargetViewTo(captureHost);
-        this.view.setBounds({
+        const captureBounds = {
           x: 0,
           y: 0,
           width: physicalWidth,
           height: physicalHeight,
-        });
+        };
+        const refreshCaptureSurfaceBounds = (): void => {
+          // Reassigning the same bounds can be coalesced with a late interactive
+          // resize on Windows, so pulse the view before restoring the exact size.
+          this.view.setBounds({
+            ...captureBounds,
+            width: Math.max(1, physicalWidth - 1),
+            height: Math.max(1, physicalHeight - 1),
+          });
+          this.view.setBounds(captureBounds);
+        };
+        this.view.setBounds(captureBounds);
         webContents.enableDeviceEmulation({
           screenPosition:
             settings.deviceMode === 'mobile' ? 'mobile' : 'desktop',
@@ -234,11 +252,16 @@ export class TargetBrowserController {
         insertedCssKey = await webContents.insertCSS(captureCss(settings), {
           cssOrigin: 'user',
         });
+        if (this.activateCaptureSurface) {
+          captureHost.showInactive();
+          captureHost.setContentSize(physicalWidth, physicalHeight);
+          refreshCaptureSurfaceBounds();
+        }
         this.view.setVisible(true);
 
         return captureExactPage(
           {
-            prepareAttempt: async () => {
+            prepareSurface: async () => {
               await webContents.executeJavaScript(`
                 (async () => {
                   if (document.fonts && document.fonts.ready) {
@@ -247,6 +270,20 @@ export class TargetBrowserController {
                       new Promise((resolve) => setTimeout(resolve, 3000))
                     ]);
                   }
+                })();
+              `);
+              if (settings.waitMs > 0) {
+                await delay(settings.waitMs);
+              }
+            },
+            prepareCapture: async () => {
+              if (this.activateCaptureSurface) {
+                captureHost.setContentSize(physicalWidth, physicalHeight);
+                refreshCaptureSurfaceBounds();
+              }
+              webContents.invalidate();
+              await webContents.executeJavaScript(`
+                (async () => {
                   await Promise.race([
                     new Promise((resolve) =>
                       requestAnimationFrame(() => requestAnimationFrame(resolve))
@@ -255,9 +292,8 @@ export class TargetBrowserController {
                   ]);
                 })();
               `);
-              await delay(Math.max(50, settings.waitMs));
+              await delay(50);
             },
-            invalidate: () => webContents.invalidate(),
             capturePage: (rectangle, options) =>
               webContents.capturePage(rectangle, options),
           },
