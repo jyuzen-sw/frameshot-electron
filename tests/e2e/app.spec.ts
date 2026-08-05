@@ -3622,6 +3622,7 @@ test('stops and replaces a stalled target navigation', async () => {
   try {
     app = await launchPackagedApp(tempDirectory);
     await waitForMainUi(app.cdp);
+    await app.cdp.setReducedMotion(false);
 
     const uncommittedPath = '/stalled-before-commit';
     const uncommittedUrl = `${fixture.url}${uncommittedPath}`;
